@@ -202,6 +202,19 @@ download_progress = {"total": 0, "downloaded": 0, "status": "idle", "message": "
 download_progress_lock = threading.Lock()
 install_in_progress = False
 install_lock = threading.Lock()
+model_download_state = {
+    "status": "idle",
+    "message": "",
+    "total": 0,
+    "downloaded": 0,
+    "current_file": "",
+    "model_name": "",
+    "model_path": "",
+    "mmproj_path": "",
+}
+model_download_lock = threading.Lock()
+model_download_in_progress = False
+model_download_cancel = threading.Event()
 gui_server = None
 remote_tunnel_process = None
 remote_tunnel_lock = threading.Lock()
@@ -544,6 +557,259 @@ def get_download_progress_snapshot():
         return dict(download_progress)
 
 
+def reset_model_download_state(status="idle", message="", total=0, downloaded=0):
+    with model_download_lock:
+        model_download_state.clear()
+        model_download_state.update(
+            {
+                "status": status,
+                "message": message,
+                "total": total,
+                "downloaded": downloaded,
+                "current_file": "",
+                "model_name": "",
+                "model_path": "",
+                "mmproj_path": "",
+            }
+        )
+
+
+def set_model_download_state(**updates):
+    with model_download_lock:
+        model_download_state.update(updates)
+
+
+def get_model_download_snapshot():
+    with model_download_lock:
+        return dict(model_download_state)
+
+
+def normalize_hf_token(token):
+    value = str(token or "").strip()
+    return value or None
+
+
+def validate_hf_repo_id(repo_id):
+    value = str(repo_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", value):
+        raise ValueError("Enter a Hugging Face repo ID like owner/model.")
+    if ".." in value or value.endswith("."):
+        raise ValueError("Invalid Hugging Face repo ID.")
+    return value
+
+
+def validate_hf_revision(revision):
+    value = str(revision or "main").strip() or "main"
+    if value.startswith("/") or "\\" in value or "\x00" in value or ".." in pathlib.PurePosixPath(value).parts:
+        raise ValueError("Invalid Hugging Face revision.")
+    return value
+
+
+def validate_hf_filename(filename):
+    value = str(filename or "").strip().replace("\\", "/")
+    pure = pathlib.PurePosixPath(value)
+    if not value or pure.is_absolute() or "\x00" in value or ".." in pure.parts:
+        raise ValueError("Invalid Hugging Face filename.")
+    if pure.name != pathlib.PureWindowsPath(pure.name).name:
+        raise ValueError("Invalid Hugging Face filename.")
+    if re.search(r'[<>:"/\\|?*]', pure.name):
+        raise ValueError("Hugging Face filename is not safe to save locally.")
+    if not pure.name.lower().endswith(".gguf"):
+        raise ValueError("Only .gguf files can be downloaded.")
+    return value
+
+
+def is_mmproj_filename(filename):
+    name = pathlib.PurePosixPath(str(filename or "").replace("\\", "/")).name.lower()
+    stem = pathlib.Path(name).stem
+    return "mmproj" in stem or stem.startswith("clip") or "projector" in stem
+
+
+def slugify_repo_id(repo_id):
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", repo_id).strip("._-") or "repo"
+
+
+def hf_file_to_dict(file_obj):
+    filename = (
+        getattr(file_obj, "rfilename", None)
+        or getattr(file_obj, "path", None)
+        or getattr(file_obj, "name", None)
+        or ""
+    )
+    size = getattr(file_obj, "size", None)
+    if size is None:
+        lfs = getattr(file_obj, "lfs", None)
+        if isinstance(lfs, dict):
+            size = lfs.get("size")
+    try:
+        size = int(size) if size is not None else None
+    except (TypeError, ValueError):
+        size = None
+    return {"name": str(filename), "size": size, "size_mb": round(size / 1048576, 2) if size else None}
+
+
+def get_hf_gguf_files(repo_id, revision="main", token=None):
+    try:
+        from huggingface_hub import HfApi
+    except ImportError as exc:
+        raise RuntimeError("Hugging Face downloads require the huggingface_hub package. Re-run the install script.") from exc
+
+    auth_token = token or False
+    api = HfApi(token=auth_token)
+    info = api.model_info(
+        repo_id=repo_id,
+        revision=revision,
+        files_metadata=True,
+        token=auth_token,
+        timeout=30,
+    )
+    files = []
+    for sibling in info.siblings or []:
+        item = hf_file_to_dict(sibling)
+        if item["name"].lower().endswith(".gguf"):
+            files.append(item)
+    files.sort(key=lambda item: item["name"].lower())
+    main_files = [item for item in files if not is_mmproj_filename(item["name"])]
+    mmproj_files = [item for item in files if is_mmproj_filename(item["name"])]
+    return {"repo_id": repo_id, "revision": revision, "models": main_files, "mmproj": mmproj_files}
+
+
+def get_hf_file_size(repo_id, filename, revision, token=None):
+    try:
+        from huggingface_hub import get_hf_file_metadata, hf_hub_url
+    except ImportError:
+        return 0
+
+    try:
+        url = hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
+        metadata = get_hf_file_metadata(url, token=token or False, timeout=20)
+        return int(metadata.size or 0)
+    except Exception:
+        return 0
+
+
+def build_hf_download_url(repo_id, filename, revision):
+    try:
+        from huggingface_hub import hf_hub_url
+    except ImportError as exc:
+        raise RuntimeError("Hugging Face downloads require the huggingface_hub package. Re-run the install script.") from exc
+    return hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
+
+
+def download_hf_file(repo_id, filename, revision, token, dest, completed_bytes, total_bytes):
+    url = build_hf_download_url(repo_id, filename, revision)
+    headers = {"User-Agent": "Llama-GUI"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(url, headers=headers)
+    tmp_path = dest.with_suffix(dest.suffix + ".part")
+    downloaded = 0
+    with urlopen_with_ssl(req, timeout=60) as resp, open(tmp_path, "wb") as f:
+        while True:
+            if model_download_cancel.is_set():
+                raise InterruptedError("Download cancelled.")
+            chunk = resp.read(1024 * 1024)
+            if not chunk:
+                break
+            f.write(chunk)
+            downloaded += len(chunk)
+            set_model_download_state(
+                downloaded=completed_bytes + downloaded,
+                total=total_bytes,
+                current_file=pathlib.PurePosixPath(filename).name,
+            )
+    tmp_path.replace(dest)
+    return downloaded
+
+
+def remove_partial_downloads(paths):
+    for path in paths:
+        tmp_path = path.with_suffix(path.suffix + ".part")
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+
+
+def start_hf_model_download(repo_id, revision, model_file, mmproj_file, token, overwrite=False):
+    global model_download_in_progress
+    repo_id = validate_hf_repo_id(repo_id)
+    revision = validate_hf_revision(revision)
+    model_file = validate_hf_filename(model_file)
+    mmproj_file = validate_hf_filename(mmproj_file) if mmproj_file else ""
+
+    if is_mmproj_filename(model_file):
+        raise ValueError("Choose a main model file, not an mmproj file.")
+    if mmproj_file and not is_mmproj_filename(mmproj_file):
+        raise ValueError("Choose an mmproj/projector file for the companion mmproj download.")
+
+    model_name = pathlib.PurePosixPath(model_file).name
+    model_dest = MODELS_DIR / model_name
+    mmproj_dest = None
+    if mmproj_file:
+        mmproj_dest = MODELS_DIR / "mmproj" / slugify_repo_id(repo_id) / pathlib.PurePosixPath(mmproj_file).name
+
+    existing = [path.name for path in [model_dest, mmproj_dest] if path and path.exists()]
+    if existing and not overwrite:
+        raise FileExistsError(f"Already exists: {', '.join(existing)}")
+
+    with model_download_lock:
+        if model_download_in_progress:
+            raise RuntimeError("A model download is already in progress.")
+        model_download_in_progress = True
+    model_download_cancel.clear()
+
+    def _worker():
+        global model_download_in_progress
+        destinations = [model_dest]
+        if mmproj_dest:
+            destinations.append(mmproj_dest)
+        try:
+            MODELS_DIR.mkdir(parents=True, exist_ok=True)
+            if mmproj_dest:
+                mmproj_dest.parent.mkdir(parents=True, exist_ok=True)
+            total = get_hf_file_size(repo_id, model_file, revision, token)
+            if mmproj_file:
+                total += get_hf_file_size(repo_id, mmproj_file, revision, token)
+            reset_model_download_state(
+                status="downloading",
+                message=f"Downloading {model_name}...",
+                total=total,
+                downloaded=0,
+            )
+            completed = download_hf_file(repo_id, model_file, revision, token, model_dest, 0, total)
+            mmproj_path = ""
+            if mmproj_file and mmproj_dest:
+                set_model_download_state(message=f"Downloading {mmproj_dest.name}...")
+                completed += download_hf_file(repo_id, mmproj_file, revision, token, mmproj_dest, completed, total)
+                mmproj_path = str(mmproj_dest)
+            set_model_download_state(
+                status="done",
+                message=f"Downloaded {model_name}.",
+                downloaded=total or completed,
+                total=total or completed,
+                current_file="",
+                model_name=model_name,
+                model_path=str(model_dest),
+                mmproj_path=mmproj_path,
+            )
+        except InterruptedError as exc:
+            remove_partial_downloads(destinations)
+            set_model_download_state(status="cancelled", message=str(exc), current_file="")
+        except Exception as exc:
+            remove_partial_downloads(destinations)
+            set_model_download_state(status="error", message=str(exc), current_file="")
+        finally:
+            with model_download_lock:
+                model_download_in_progress = False
+            model_download_cancel.clear()
+
+    reset_model_download_state(status="starting", message="Preparing Hugging Face download...")
+    threading.Thread(target=_worker, daemon=True).start()
+    return get_model_download_snapshot()
+
+
 def extract_zip_file_flat(zf, info, dest_dir):
     if info.is_dir():
         return
@@ -881,6 +1147,30 @@ def run_git(args):
     )
 
 
+def install_python_dependencies():
+    requirements_path = BASE_DIR / "requirements.txt"
+    if not requirements_path.exists():
+        return {"installed": False, "message": "requirements.txt was not found."}
+
+    res = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+        cwd=str(BASE_DIR),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = (res.stdout or res.stderr or "").strip()
+    if res.returncode != 0:
+        return {
+            "installed": False,
+            "error": (res.stderr or res.stdout or "Dependency installation failed.").strip(),
+        }
+    return {
+        "installed": True,
+        "message": output.splitlines()[-1] if output else "Dependencies are up to date.",
+    }
+
+
 SAFE_DIRTY_PATH_PREFIXES = (
     "llama/",
     "models/",
@@ -1138,8 +1428,20 @@ def update_app_from_git():
             "status": get_app_update_status(fetch=False),
         }
 
+    deps_res = install_python_dependencies()
+    if deps_res.get("error"):
+        return {
+            "updated": True,
+            "dependencies_installed": False,
+            "dependency_error": deps_res["error"],
+            "message": (pull_res.stdout or "Updated successfully").strip(),
+            "status": get_app_update_status(fetch=False),
+        }
+
     return {
         "updated": True,
+        "dependencies_installed": deps_res.get("installed", False),
+        "dependency_message": deps_res.get("message", ""),
         "message": (pull_res.stdout or "Updated successfully").strip(),
         "status": get_app_update_status(fetch=False),
     }
@@ -1752,6 +2054,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json(get_download_progress_snapshot())
             return
 
+        if path == "/api/hf/download-status":
+            self.send_json(get_model_download_snapshot())
+            return
+
         if path == "/api/remote-tunnel/status":
             self.send_json(get_remote_tunnel_snapshot())
             return
@@ -1833,6 +2139,39 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/api/remote-tunnel/stop":
             self.send_json(stop_remote_tunnel())
+            return
+
+        if path == "/api/hf/repo-files":
+            try:
+                repo_id = validate_hf_repo_id(body.get("repo_id"))
+                revision = validate_hf_revision(body.get("revision"))
+                token = normalize_hf_token(body.get("token"))
+                self.send_json(get_hf_gguf_files(repo_id, revision, token))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
+            return
+
+        if path == "/api/hf/download":
+            try:
+                result = start_hf_model_download(
+                    repo_id=body.get("repo_id"),
+                    revision=body.get("revision"),
+                    model_file=body.get("model_file"),
+                    mmproj_file=body.get("mmproj_file"),
+                    token=normalize_hf_token(body.get("token")),
+                    overwrite=bool(body.get("overwrite")),
+                )
+                self.send_json(result)
+            except FileExistsError as e:
+                self.send_json({"error": str(e), "code": "exists"}, 409)
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
+            return
+
+        if path == "/api/hf/download-cancel":
+            model_download_cancel.set()
+            set_model_download_state(status="cancelling", message="Cancelling download...")
+            self.send_json(get_model_download_snapshot())
             return
 
         if path == "/api/install":

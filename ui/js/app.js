@@ -11,6 +11,7 @@ let statsTimer = null;
 let pollOutputActive = false;
 let pollStatsActive = false;
 let remoteTunnelTimer = null;
+let hfDownloadTimer = null;
 let openCategories = new Set();
 let openSubmenus = new Set();
 let configSearchQuery = "";
@@ -776,6 +777,201 @@ function refreshQuickSamplerPresetSelect() {
     }
 }
 
+function formatHfBytes(bytes) {
+    const value = Number(bytes || 0);
+    if (!value) return "unknown size";
+    if (value >= 1073741824) return `${(value / 1073741824).toFixed(2)} GB`;
+    return `${(value / 1048576).toFixed(1)} MB`;
+}
+
+function showHfDownloadStatus(type, message) {
+    const el = document.getElementById("hf-download-status");
+    if (!el) return;
+    el.className = "hf-download-status" + (type ? " " + type : "");
+    el.textContent = message || "";
+}
+
+function setHfDownloadBusy(isBusy) {
+    const findBtn = document.getElementById("btn-hf-find-files");
+    const downloadBtn = document.getElementById("btn-hf-download");
+    const cancelBtn = document.getElementById("btn-hf-cancel");
+    if (findBtn) findBtn.disabled = isBusy;
+    if (downloadBtn) downloadBtn.disabled = isBusy;
+    if (cancelBtn) cancelBtn.classList.toggle("hidden", !isBusy);
+}
+
+function updateHfProgress(prog) {
+    const wrap = document.getElementById("hf-download-progress");
+    const fill = document.getElementById("hf-progress-fill");
+    const text = document.getElementById("hf-progress-text");
+    if (!wrap || !fill || !text) return;
+
+    const status = String(prog.status || "");
+    const active = ["starting", "downloading", "cancelling"].includes(status);
+    wrap.classList.toggle("hidden", !active && status !== "done");
+
+    if (prog.total > 0) {
+        const pct = Math.min(100, Math.round((prog.downloaded / prog.total) * 100));
+        fill.style.width = pct + "%";
+        text.textContent = `${prog.current_file || "Downloading"} ${pct}% (${formatHfBytes(prog.downloaded)} / ${formatHfBytes(prog.total)})`;
+    } else {
+        fill.style.width = active ? "25%" : "100%";
+        text.textContent = prog.message || status || "Working...";
+    }
+}
+
+function populateHfFileSelect(select, files, placeholder) {
+    if (!select) return;
+    select.innerHTML = "";
+    const first = document.createElement("option");
+    first.value = "";
+    first.textContent = placeholder;
+    select.appendChild(first);
+    for (const file of files || []) {
+        const opt = document.createElement("option");
+        opt.value = file.name;
+        opt.textContent = `${file.name}  (${formatHfBytes(file.size)})`;
+        select.appendChild(opt);
+    }
+}
+
+async function findHfFiles() {
+    const repoInput = document.getElementById("hf-repo-input");
+    const revisionInput = document.getElementById("hf-revision-input");
+    const tokenInput = document.getElementById("hf-token-input");
+    const options = document.getElementById("hf-file-options");
+    const modelSelect = document.getElementById("hf-model-file-select");
+    const mmprojSelect = document.getElementById("hf-mmproj-file-select");
+    const mmprojGroup = document.getElementById("hf-mmproj-group");
+    if (!repoInput || !modelSelect || !mmprojSelect) return;
+
+    const repoId = repoInput.value.trim();
+    if (!repoId) {
+        showHfDownloadStatus("warning", "Enter a Hugging Face repo ID first.");
+        return;
+    }
+
+    showHfDownloadStatus("info", "Looking for GGUF files...");
+    setHfDownloadBusy(true);
+    try {
+        const result = await fetchJson("/api/hf/repo-files", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                repo_id: repoId,
+                revision: revisionInput && revisionInput.value.trim() ? revisionInput.value.trim() : "main",
+                token: tokenInput ? tokenInput.value.trim() : "",
+            }),
+        });
+        populateHfFileSelect(modelSelect, result.models || [], "-- Select model file --");
+        populateHfFileSelect(mmprojSelect, result.mmproj || [], "None");
+        if (result.models && result.models.length === 1) modelSelect.value = result.models[0].name;
+        if (mmprojGroup) mmprojGroup.classList.toggle("hidden", !(result.mmproj && result.mmproj.length));
+        if (options) options.classList.remove("hidden");
+        const modelCount = (result.models || []).length;
+        const mmprojCount = (result.mmproj || []).length;
+        showHfDownloadStatus(
+            modelCount ? "success" : "warning",
+            modelCount
+                ? `Found ${modelCount} model file${modelCount === 1 ? "" : "s"}${mmprojCount ? ` and ${mmprojCount} mmproj companion${mmprojCount === 1 ? "" : "s"}` : ""}.`
+                : "No launchable GGUF model files were found in this repo."
+        );
+    } catch (e) {
+        if (options) options.classList.add("hidden");
+        showHfDownloadStatus("error", "Hugging Face lookup failed: " + e.message);
+    } finally {
+        setHfDownloadBusy(false);
+    }
+}
+
+async function startHfDownload(overwrite = false) {
+    const repoInput = document.getElementById("hf-repo-input");
+    const revisionInput = document.getElementById("hf-revision-input");
+    const tokenInput = document.getElementById("hf-token-input");
+    const modelSelect = document.getElementById("hf-model-file-select");
+    const mmprojSelect = document.getElementById("hf-mmproj-file-select");
+    if (!repoInput || !modelSelect) return;
+
+    const modelFile = modelSelect.value;
+    if (!modelFile) {
+        showHfDownloadStatus("warning", "Choose a model file to download.");
+        return;
+    }
+
+    showHfDownloadStatus("info", "Starting download...");
+    setHfDownloadBusy(true);
+    try {
+        await fetchJson("/api/hf/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                repo_id: repoInput.value.trim(),
+                revision: revisionInput && revisionInput.value.trim() ? revisionInput.value.trim() : "main",
+                token: tokenInput ? tokenInput.value.trim() : "",
+                model_file: modelFile,
+                mmproj_file: mmprojSelect ? mmprojSelect.value : "",
+                overwrite,
+            }),
+        });
+        pollHfDownloadProgress();
+    } catch (e) {
+        setHfDownloadBusy(false);
+        if (e.message && e.message.startsWith("Already exists:")) {
+            const ok = await confirmAction(`${e.message}. Replace the existing file?`);
+            if (ok) {
+                startHfDownload(true);
+                return;
+            }
+        }
+        showHfDownloadStatus("error", "Download failed to start: " + e.message);
+    }
+}
+
+async function finishHfDownload(prog) {
+    showHfDownloadStatus("success", prog.message || "Download complete.");
+    setHfDownloadBusy(false);
+    await refreshModels();
+    if (prog.model_name) {
+        applyPresetModel(prog.model_name);
+    }
+    if (prog.mmproj_path) {
+        setPathFlagValue("mmproj", prog.mmproj_path);
+    }
+    updateCommandPreview();
+    refreshQuickLaunchUI();
+}
+
+function pollHfDownloadProgress() {
+    if (hfDownloadTimer) clearInterval(hfDownloadTimer);
+    hfDownloadTimer = setInterval(async () => {
+        try {
+            const prog = await fetchJson("/api/hf/download-status");
+            updateHfProgress(prog);
+            if (prog.status === "done") {
+                clearInterval(hfDownloadTimer);
+                hfDownloadTimer = null;
+                await finishHfDownload(prog);
+            } else if (["error", "cancelled"].includes(prog.status)) {
+                clearInterval(hfDownloadTimer);
+                hfDownloadTimer = null;
+                setHfDownloadBusy(false);
+                showHfDownloadStatus(prog.status === "cancelled" ? "warning" : "error", prog.message || "Download stopped.");
+            }
+        } catch (e) {
+            // Ignore transient poll errors while the server is busy with a large download.
+        }
+    }, 500);
+}
+
+async function cancelHfDownload() {
+    try {
+        await fetchJson("/api/hf/download-cancel", { method: "POST" });
+        showHfDownloadStatus("warning", "Cancelling download...");
+    } catch (e) {
+        showHfDownloadStatus("error", "Failed to cancel download: " + e.message);
+    }
+}
+
 function applyQuickProfile(profileId) {
     const profile = QUICK_PROFILES[profileId];
     if (!profile) return;
@@ -1076,6 +1272,10 @@ function initQuickLaunch() {
     document.getElementById("btn-quick-refresh-models").addEventListener("click", () => {
         refreshModels();
     });
+
+    document.getElementById("btn-hf-find-files").addEventListener("click", findHfFiles);
+    document.getElementById("btn-hf-download").addEventListener("click", () => startHfDownload(false));
+    document.getElementById("btn-hf-cancel").addEventListener("click", cancelHfDownload);
 
     document.getElementById("quick-model-select").addEventListener("change", (e) => {
         applyPresetModel(e.target.value);
@@ -1441,6 +1641,12 @@ function initConfigControls() {
 
     document.getElementById("btn-clear-search").addEventListener("click", () => {
         clearSearch();
+    });
+
+    document.getElementById("btn-configure-hf-download").addEventListener("click", () => {
+        switchTab("quick-launch");
+        const repoInput = document.getElementById("hf-repo-input");
+        if (repoInput) repoInput.focus();
     });
 
     document.getElementById("btn-expand-all").addEventListener("click", () => {

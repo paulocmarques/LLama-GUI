@@ -132,6 +132,46 @@
                             </select>
                         </div>
                         <p id="quick-profile-summary" class="quick-help-text">Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.</p>
+
+                        <div class="hf-download-panel">
+                            <div class="hf-download-title">Download from Hugging Face</div>
+                            <div id="hf-download-status" class="hf-download-status"></div>
+                            <div class="form-group">
+                                <label for="hf-repo-input">Repo ID</label>
+                                <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
+                            </div>
+                            <div class="hf-download-grid">
+                                <div class="form-group">
+                                    <label for="hf-revision-input">Revision</label>
+                                    <input type="text" id="hf-revision-input" placeholder="main" />
+                                </div>
+                                <div class="form-group">
+                                    <label for="hf-token-input">Token</label>
+                                    <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" />
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button id="btn-hf-find-files" class="btn btn-sm" type="button">Find GGUF Files</button>
+                            </div>
+                            <div id="hf-file-options" class="hidden">
+                                <div class="form-group">
+                                    <label for="hf-model-file-select">Model File</label>
+                                    <select id="hf-model-file-select"></select>
+                                </div>
+                                <div class="form-group" id="hf-mmproj-group">
+                                    <label for="hf-mmproj-file-select">Companion mmproj</label>
+                                    <select id="hf-mmproj-file-select"></select>
+                                </div>
+                                <div id="hf-download-progress" class="progress-container hidden">
+                                    <div class="progress-bar"><div id="hf-progress-fill" class="progress-fill"></div></div>
+                                    <span id="hf-progress-text">Starting...</span>
+                                </div>
+                                <div class="form-row">
+                                    <button id="btn-hf-download" class="btn btn-primary" type="button">Download</button>
+                                    <button id="btn-hf-cancel" class="btn btn-danger hidden" type="button">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
                     </section>
 
                     <section class="quick-card">
@@ -314,6 +354,7 @@
                             <option value="">-- Select Model --</option>
                         </select>
                         <button class="btn btn-sm" onclick="refreshModels()">&#x21bb;</button>
+                        <button id="btn-configure-hf-download" class="btn btn-sm" type="button">Download in Quick Launch</button>
                     </div>
                 </div>
 

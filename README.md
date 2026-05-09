@@ -24,7 +24,6 @@ Llama GUI provides a browser UI to:
 - [First-Run Checklist (60 Seconds)](#first-run-checklist-60-seconds)
 - [What Each Tab Does](#what-each-tab-does)
 - [Chat Web Search](#chat-web-search)
-- [Suggested README Screenshots](#suggested-readme-screenshots)
 - [Sampler Presets](#sampler-presets)
 - [Server Stats Bar](#server-stats-bar)
 - [MCP and Built-in Tools Notes](#mcp-and-built-in-tools-notes)
@@ -78,14 +77,22 @@ Platform launch helpers:
 
 3. Open `http://127.0.0.1:5240` in your browser.
 4. In **Install**, choose a version + backend, then click **Install**.
-5. Put `.gguf` files in `models/` (or click **Open Models**).
+5. Put `.gguf` files in `models/` (or click **Open Models**), or use the Hugging Face downloader in **Quick Launch**.
 6. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
 7. Open **Chat** to talk to the running server. Enable **Web Search** when you want the model to search the web before answering.
 8. Use **Configure** when you want full flag-by-flag control.
 
 ## Getting Models
 
-Download `llama.cpp`-compatible `.gguf` models from [Hugging Face](https://huggingface.co/), then place the files in the local `models/` folder. After that, they will appear in **Quick Launch** and **Configure**.
+Manual model management is always supported: download `llama.cpp`-compatible `.gguf` models from [Hugging Face](https://huggingface.co/) or another trusted source, then place the files in the local `models/` folder. After that, they will appear in **Quick Launch** and **Configure**.
+
+You can also download models from inside the app:
+
+1. Open **Quick Launch**.
+2. In **Model**, enter a Hugging Face repo ID such as `owner/model-GGUF`.
+3. Click **Find GGUF Files**, choose a model file, then click **Download**.
+
+For vision/multimodal models, download the matching `mmproj` companion file when the repo provides one. Llama GUI stores downloaded projector files under `models/mmproj/` and applies the `Multimodal Projector` launch setting automatically.
 
 ## Download the Current Release Zip
 
@@ -320,19 +327,6 @@ Security and privacy behavior:
 - fetched page bytes and injected source text are capped to avoid huge prompts
 
 Web Search is best for current or uncertain factual questions. Leave it off for normal local-only chat.
-
-## Suggested README Screenshots
-
-If you want stronger onboarding for new users, adding these screenshots helps a lot:
-
-1. **Install tab** after successful install (version badge + backend selected)
-2. **Quick Launch tab** with a model selected and the preview card visible
-3. **Configure tab** with model selected + launch bar visible
-4. **Chat tab** with a conversation in progress and the sidebar visible
-5. **API tab** showing base URL + sample snippet cards
-6. **Server and MCP Settings** submenu expanded (including risk badges/warning)
-7. **Output panel** showing successful `llama-server` startup logs
-8. **Stats bar** showing live token counts and throughput while server is running
 
 ## Sampler Presets
 
