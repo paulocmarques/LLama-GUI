@@ -563,7 +563,7 @@ async function updateAppFromGitHub() {
 
     const ok = await confirmAction(
         "Update Llama GUI",
-        "Pull latest changes from GitHub now? The app may need a restart after updating.",
+        "Pull latest changes from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.",
         "Update"
     );
     if (!ok) return;
@@ -572,7 +572,16 @@ async function updateAppFromGitHub() {
     try {
         const result = await fetchJson("/api/app-update", { method: "POST" });
         if (result.updated) {
-            showAppUpdateStatus("success", "App updated. Restart Llama GUI to load new code.");
+            if (result.dependency_error) {
+                showAppUpdateStatus("warning", "App updated, but dependency installation failed: " + result.dependency_error);
+            } else {
+                const depText = result.dependencies_installed
+                    ? " Dependencies were installed."
+                    : result.dependency_message
+                        ? " " + result.dependency_message
+                        : "";
+                showAppUpdateStatus("success", "App updated." + depText + " Restart Llama GUI to load new code.");
+            }
         } else if (result.message) {
             showAppUpdateStatus("info", result.message);
         }
