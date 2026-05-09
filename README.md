@@ -61,6 +61,10 @@ Platform launch helpers:
 7. Open **Chat** to talk to the running server. Enable **Web Search** when you want the model to search the web before answering.
 8. Use **Configure** when you want full flag-by-flag control.
 
+## Getting Models
+
+Download `llama.cpp`-compatible `.gguf` models from [Hugging Face](https://huggingface.co/), then place the files in the local `models/` folder. After that, they will appear in **Quick Launch** and **Configure**.
+
 ## Download the Current Release Zip
 
 If you do not want to clone the repository, you can download the latest packaged release from the GitHub **Releases** page.
