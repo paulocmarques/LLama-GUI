@@ -74,6 +74,7 @@ Built-in (Neutral/Balanced/Creative/Precise) + custom presets:
 - Stored in `localStorage` under `llama_gui_sampler_presets_v1`
 - Save/load/delete/export/import with deduplication
 - Shared across Configure and Quick Launch tabs
+- Built-ins are tuned as KoboldCpp-style simple equivalents while preserving the existing preset names
 
 ## Server Metrics
 
