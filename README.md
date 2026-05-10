@@ -361,9 +361,15 @@ Web Search is best for current or uncertain factual questions. Leave it off for 
 Sampler presets are available in both **Quick Launch** and the **Sampling** section in Configure.
 
 Includes:
-- built-in presets: `Balanced`, `Creative`, `Precise`
+- built-in presets: `Neutral`, `Balanced`, `Creative`, `Precise`
 - custom preset `Save`, `Load`, `Delete`
 - JSON `Import` / `Export`
+
+Current built-ins are tuned to approximate KoboldCpp's simple preset family while keeping the same user-facing preset names:
+- `Neutral`: neutralized baseline
+- `Balanced`: close to KoboldCpp `Simple Balanced`
+- `Creative`: close to KoboldCpp `Simple Creative`
+- `Precise`: tuned toward KoboldCpp `Simple Logical`
 
 Storage behavior:
 - custom sampler presets are stored in browser `localStorage`

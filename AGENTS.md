@@ -433,10 +433,10 @@ Sampler presets allow saving and loading groups of sampling flags.
 ### Built-In Presets
 
 Defined in `BUILTIN_SAMPLER_PRESETS` in `app.js`:
-- **Neutral**: temperature=1.0, top_k=0, top_p=1.0, min_p=0, all penalties disabled
-- **Balanced**: temperature=0.8, top_k=40, top_p=0.95, min_p=0.05, repeat_penalty=1.05
-- **Creative**: temperature=1.05, top_k=100, top_p=0.97, min_p=0.03, repeat_penalty=1.02
-- **Precise**: temperature=0.45, top_k=30, top_p=0.9, min_p=0.08, repeat_penalty=1.1
+- **Neutral**: KoboldCpp-style neutral baseline with temperature=1.0, top_k=200, top_p=1.0, min_p=0, repeat_penalty=1.0, repeat_last_n=360
+- **Balanced**: KoboldCpp `Simple Balanced` style with temperature=0.75, top_k=100, top_p=0.92, min_p=0, repeat_penalty=1.05, repeat_last_n=360
+- **Creative**: KoboldCpp `Simple Creative` style with temperature=1.0, top_k=100, top_p=0.98, min_p=0, repeat_penalty=1.1, repeat_last_n=360
+- **Precise**: Repurposed toward KoboldCpp `Simple Logical` behavior with temperature=0.3, top_k=25, top_p=0.6, min_p=0, repeat_penalty=1.02, repeat_last_n=360
 
 ### Custom Presets
 
