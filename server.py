@@ -36,6 +36,7 @@ MODELS_DIR = BASE_DIR / "models"
 PRESETS_DIR = BASE_DIR / "presets"
 CONFIG_FILE = BASE_DIR / "config.json"
 UI_DIR = BASE_DIR / "ui"
+APP_LOGO_FILE = BASE_DIR / "Llama-GUI Logo.png"
 TOOLS_DIR = BASE_DIR / "tools"
 CLOUDFLARED_DIR = TOOLS_DIR / "cloudflared"
 
@@ -1982,6 +1983,19 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        if path == "/assets/app-logo.png":
+            if not APP_LOGO_FILE.exists():
+                self.send_error(404, "Logo not found")
+                return
+            body = APP_LOGO_FILE.read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(body)
+            return
 
         if path == "/" or path == "/index.html":
             super().do_GET()
