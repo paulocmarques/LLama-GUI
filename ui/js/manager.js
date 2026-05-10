@@ -103,7 +103,8 @@ async function checkStatus() {
 function updateStatusUI(status) {
     if (!status) return;
     const badge = document.getElementById("version-badge");
-    const processBadge = document.getElementById("process-badge");
+    const sidebarStatus = document.getElementById("sidebar-status");
+    const sidebarStatusText = document.getElementById("sidebar-status-text");
     const info = document.getElementById("installed-info");
     const repairBtn = document.getElementById("btn-repair");
     const backendSelect = document.getElementById("backend-select");
@@ -139,9 +140,10 @@ function updateStatusUI(status) {
     }
 
     if (status.running) {
-        processBadge.classList.remove("hidden");
+        if (sidebarStatus) sidebarStatus.style.display = "";
+        if (sidebarStatusText) sidebarStatusText.textContent = "llama-server running";
     } else {
-        processBadge.classList.add("hidden");
+        if (sidebarStatus) sidebarStatus.style.display = "none";
     }
 
     repairBtn.classList.toggle("hidden", !status.config_stale);
@@ -261,14 +263,14 @@ async function removeLlamaFiles() {
 }
 
 function setInstallButtonsDisabled(disabled) {
-    document.getElementById("btn-install").disabled = disabled;
-    document.getElementById("btn-update").disabled = disabled;
-    document.getElementById("btn-repair").disabled = disabled;
-    document.getElementById("btn-remove-llama").disabled = disabled;
-    document.getElementById("btn-stop-app").disabled = disabled;
-    document.getElementById("btn-restart-app").disabled = disabled;
-    document.getElementById("btn-check-app-update").disabled = disabled;
-    document.getElementById("btn-update-app").disabled = disabled;
+    const ids = [
+        "btn-install", "btn-update", "btn-repair", "btn-remove-llama",
+        "btn-stop-app", "btn-restart-app", "btn-check-app-update", "btn-update-app",
+    ];
+    for (const id of ids) {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    }
 }
 
 async function stopPythonServer() {
@@ -455,10 +457,12 @@ function showProgress(visible) {
 
 function showStatus(type, message) {
     const el = document.getElementById("install-status");
-    el.className = "status-box " + type;
-    el.textContent = message;
+    el.className = "status-box " + (type || "");
+    el.textContent = message || "";
     if (!type) {
         el.style.display = "none";
+    } else {
+        el.style.display = "";
     }
 }
 
@@ -469,6 +473,8 @@ function showAppUpdateStatus(type, message) {
     el.textContent = message || "";
     if (!type) {
         el.style.display = "none";
+    } else {
+        el.style.display = "";
     }
 }
 
@@ -657,6 +663,7 @@ function openFolder(folder) {
 
 async function refreshModels() {
     const sel = document.getElementById("model-select");
+    if (!sel) return;
     const current = sel.value;
     sel.innerHTML = '<option value="">-- Select Model --</option>';
     try {
