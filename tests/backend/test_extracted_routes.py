@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import chat, file_picker, hf_download, metrics, models, presets, search, status
+from backend.routes import chat, file_picker, hf_download, metrics, models, presets, process, search, status
 from backend.services import chat as chat_service
+from backend.services import process_manager
 from backend.services import web_search
 
 
@@ -215,6 +216,109 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertEqual(response.status, 500)
             self.assertEqual(response.payload["error"], "Failed to read backend status: boom")
+
+    def test_process_output_route_reads_buffer_and_running_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.state.output_buffer.extend(["one", "two"])
+            response = DummyResponse()
+
+            process.get_output(Request("GET", "/api/output", "", {}), response, ctx)
+
+            self.assertEqual(response.payload, {"output": ["one", "two"], "running": False})
+
+    def test_process_send_input_writes_to_running_process(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def __init__(self):
+                    self.stdin = io.StringIO()
+
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+            response = DummyResponse()
+
+            process.send_input(
+                Request("POST", "/api/send-input", "", {}, body={"text": "hello"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.payload, {"sent": True})
+            self.assertEqual(ctx.state.process.stdin.getvalue(), "hello\n")
+
+    def test_process_cleanup_blocks_when_process_is_running(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+
+            self.assertEqual(response.status, 400)
+            self.assertEqual(response.payload["error"], "Stop running process first")
+
+    def test_process_cleanup_removes_llama_files_and_resets_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            (ctx.paths.llama_bin / "llama-cli.exe").write_text("binary")
+            saved = []
+            ctx.services.save_config = saved.append
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+
+            self.assertEqual(response.payload, {"removed_files": 1})
+            self.assertTrue(ctx.paths.llama_bin.exists())
+            self.assertTrue(ctx.paths.llama_grammars.exists())
+            self.assertEqual(saved, [{"version": None, "backend": None, "tag": None}])
+
+    def test_process_manager_flattens_nested_launch_args(self):
+        self.assertEqual(
+            process_manager.flatten_launch_args(["--host", "127.0.0.1", ["--port", 9090], 7]),
+            ["--host", "127.0.0.1", "--port", "9090", "7"],
+        )
+
+    def test_process_manager_parse_launch_api_target_updates_context_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            calls = []
+            fallback = {"host": "127.0.0.1", "port": 8080}
+
+            def set_target(host, port):
+                calls.append((host, port))
+                return {"host": host, "port": int(port)}
+
+            ctx.services.set_llama_api_target = set_target
+            ctx.services.get_llama_api_target = lambda: fallback
+
+            result = process_manager.parse_launch_api_target(
+                ctx,
+                ["--ctx-size", 4096, "--host=localhost", ["--port", "9091"]],
+            )
+
+            self.assertEqual(calls, [("localhost", "9091")])
+            self.assertEqual(result, {"host": "localhost", "port": 9091})
+
+    def test_process_manager_parse_launch_api_target_falls_back_on_invalid_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            fallback = {"host": "127.0.0.1", "port": 8080}
+            ctx.services.set_llama_api_target = lambda host, port: (_ for _ in ()).throw(ValueError("bad host"))
+            ctx.services.get_llama_api_target = lambda: fallback
+
+            result = process_manager.parse_launch_api_target(ctx, ["--host", "bad.example"])
+
+            self.assertEqual(result, fallback)
 
     def test_hf_download_status_route_reads_context_state(self):
         with tempfile.TemporaryDirectory() as tmp:

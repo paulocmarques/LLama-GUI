@@ -69,11 +69,13 @@ from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
 from backend.routes import models as models_routes
 from backend.routes import presets as presets_routes
+from backend.routes import process as process_routes
 from backend.routes import search as search_routes
 from backend.routes import status as status_routes
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
+from backend.services import process_manager as process_service
 from backend.services import web_search as web_search_service
 
 try:
@@ -229,8 +231,7 @@ STATE = APP_CONTEXT.state
 
 
 def is_process_running():
-    with STATE.process_lock:
-        return STATE.process is not None and STATE.process.poll() is None
+    return process_service.is_process_running(APP_CONTEXT)
 
 
 def load_config():
@@ -305,6 +306,7 @@ APP_CONTEXT.services.get_tool_filename = get_tool_filename
 APP_CONTEXT.services.is_process_running = is_process_running
 APP_CONTEXT.services.llama_tools = LLAMA_TOOLS
 APP_CONTEXT.services.load_config = load_config
+APP_CONTEXT.services.save_config = save_config
 APP_CONTEXT.services.ssl_context = SSL_CONTEXT
 APP_CONTEXT.services.urlopen_with_ssl = urlopen_with_ssl
 
@@ -396,36 +398,12 @@ def get_llama_api_target():
         return STATE.llama_api_target.snapshot()
 
 
-def parse_launch_api_target(args_list):
-    flat_args = []
-    for entry in args_list or []:
-        if isinstance(entry, list):
-            flat_args.extend(str(v) for v in entry)
-        else:
-            flat_args.append(str(entry))
+APP_CONTEXT.services.get_llama_api_target = get_llama_api_target
+APP_CONTEXT.services.set_llama_api_target = set_llama_api_target
 
-    host = LLAMA_HOST
-    port = LLAMA_PORT
-    i = 0
-    while i < len(flat_args):
-        item = flat_args[i]
-        if item == "--host" and i + 1 < len(flat_args):
-            host = flat_args[i + 1]
-            i += 2
-            continue
-        if item.startswith("--host="):
-            host = item.split("=", 1)[1]
-        elif item == "--port" and i + 1 < len(flat_args):
-            port = flat_args[i + 1]
-            i += 2
-            continue
-        elif item.startswith("--port="):
-            port = item.split("=", 1)[1]
-        i += 1
-    try:
-        return set_llama_api_target(host, port)
-    except ValueError:
-        return get_llama_api_target()
+
+def parse_launch_api_target(args_list):
+    return process_service.parse_launch_api_target(APP_CONTEXT, args_list)
 
 
 def get_remote_tunnel_snapshot():
@@ -893,95 +871,15 @@ def install_release(tag, backend):
 
 
 def stream_output(pipe, is_stderr=False):
-    try:
-        for line in iter(pipe.readline, ""):
-            if line:
-                decoded = line.rstrip("\n\r")
-                with STATE.output_buffer_lock:
-                    STATE.output_buffer.append(decoded)
-                    if len(STATE.output_buffer) > PROCESS_OUTPUT_LIMIT:
-                        del STATE.output_buffer[:PROCESS_OUTPUT_TRIM]
-    except Exception:
-        pass
+    process_service.stream_output(APP_CONTEXT, pipe, is_stderr)
 
 
 def launch_process(tool, args_list):
-    with STATE.process_lock:
-        if STATE.process and STATE.process.poll() is None:
-            return {"error": "A process is already running"}
-
-        exe_name = get_tool_filename(tool)
-        exe_path = find_tool_executable(tool)
-        if not exe_path.exists():
-            return {"error": f"{exe_name} not found. Install llama.cpp first."}
-
-        args = [str(exe_path)]
-        for entry in args_list:
-            if isinstance(entry, list):
-                args.extend(str(v) for v in entry)
-            else:
-                args.append(str(entry))
-
-        env = os.environ.copy()
-        runtime_paths = [str(LLAMA_BIN_DIR)]
-        existing_path = env.get("PATH", "")
-        env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
-
-        if CURRENT_PLATFORM.startswith("linux"):
-            existing_ld = env.get("LD_LIBRARY_PATH", "")
-            env["LD_LIBRARY_PATH"] = os.pathsep.join(
-                runtime_paths + ([existing_ld] if existing_ld else [])
-            )
-        elif CURRENT_PLATFORM == "darwin":
-            existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
-            env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
-                runtime_paths + ([existing_dyld] if existing_dyld else [])
-            )
-
-        with STATE.output_buffer_lock:
-            STATE.output_buffer.clear()
-
-        try:
-            STATE.process = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                stdin=subprocess.PIPE,
-                text=True,
-                env=env,
-                cwd=str(BASE_DIR),
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                if sys.platform == "win32"
-                else 0,
-            )
-            threading.Thread(
-                target=stream_output, args=(STATE.process.stdout,), daemon=True
-            ).start()
-            threading.Thread(
-                target=stream_output, args=(STATE.process.stderr, True), daemon=True
-            ).start()
-            STATE.active_process_tool = tool
-            if tool == "llama-server":
-                parse_launch_api_target(args_list)
-            return {"pid": STATE.process.pid, "command": " ".join(args)}
-        except Exception as e:
-            return {"error": str(e)}
+    return process_service.launch_process(APP_CONTEXT, tool, args_list)
 
 
 def stop_process():
-    with STATE.process_lock:
-        if STATE.process and STATE.process.poll() is None:
-            if sys.platform == "win32":
-                STATE.process.send_signal(signal.CTRL_BREAK_EVENT)
-            else:
-                STATE.process.terminate()
-            try:
-                STATE.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                STATE.process.kill()
-            STATE.active_process_tool = None
-            return True
-        return False
+    return process_service.stop_process(APP_CONTEXT)
 
 
 def shutdown_gui_server():
@@ -1037,22 +935,7 @@ def restart_gui_server():
 
 
 def remove_llama_files():
-    removed_files = 0
-
-    if LLAMA_DIR.exists():
-        for path in LLAMA_DIR.rglob("*"):
-            if path.is_file():
-                removed_files += 1
-
-    if LLAMA_DIR.exists():
-        shutil.rmtree(LLAMA_DIR)
-
-    for d in [LLAMA_BIN_DIR, LLAMA_GRAMMARS_DIR]:
-        d.mkdir(parents=True, exist_ok=True)
-
-    save_config({"version": None, "backend": None, "tag": None})
-
-    return removed_files
+    return process_service.remove_llama_files(APP_CONTEXT)
 
 
 def run_git(args):
@@ -1663,12 +1546,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error_json(str(e), 500)
 
-    def handle_get_output(self, parsed, body=None, params=None):
-        with STATE.output_buffer_lock:
-            lines = list(STATE.output_buffer)
-        running = is_process_running()
-        self.send_json({"output": lines, "running": running})
-
     def handle_get_download_progress(self, parsed, body=None, params=None):
         self.send_json(get_download_progress_snapshot())
 
@@ -1765,19 +1642,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 STATE.install_in_progress = False
             self.send_error_json(str(e), 500)
 
-    def handle_post_launch(self, parsed, body=None, params=None):
-        tool = body.get("tool", "llama-cli")
-        args = body.get("args", [])
-        result = launch_process(tool, args)
-        if "error" in result:
-            self.send_error_json(result.get("error", "Launch failed"), 400)
-        else:
-            self.send_json(result)
-
-    def handle_post_stop(self, parsed, body=None, params=None):
-        stopped = stop_process()
-        self.send_json({"stopped": stopped})
-
     def handle_post_shutdown(self, parsed, body=None, params=None):
         shutting_down = shutdown_gui_server()
         self.send_json({"shutting_down": shutting_down})
@@ -1785,16 +1649,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def handle_post_restart(self, parsed, body=None, params=None):
         restarting = restart_gui_server()
         self.send_json({"restarting": restarting})
-
-    def handle_post_cleanup_llama(self, parsed, body=None, params=None):
-        if is_process_running():
-            self.send_error_json("Stop running process first", 400)
-            return
-        try:
-            removed_files = remove_llama_files()
-            self.send_json({"removed_files": removed_files})
-        except Exception as e:
-            self.send_error_json(str(e), 500)
 
     def handle_post_app_update(self, parsed, body=None, params=None):
         try:
@@ -1809,22 +1663,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_json(result)
         except Exception as e:
             self.send_error_json(str(e), 500)
-
-    def handle_post_send_input(self, parsed, body=None, params=None):
-        text = body.get("text", "")
-        with STATE.process_lock:
-            if STATE.process and STATE.process.poll() is None:
-                try:
-                    if STATE.process.stdin:
-                        STATE.process.stdin.write(text + "\n")
-                        STATE.process.stdin.flush()
-                        self.send_json({"sent": True})
-                    else:
-                        self.send_json({"sent": False})
-                except Exception:
-                    self.send_json({"sent": False})
-            else:
-                self.send_json({"sent": False})
 
     def handle_post_open_folder(self, parsed, body=None, params=None):
         folder = body.get("folder", "models")
@@ -1906,7 +1744,7 @@ API_ROUTER = (
     Router()
     .add("GET", "/api/status", status_routes.get_status)
     .add("GET", "/api/releases", "handle_get_releases")
-    .add("GET", "/api/output", "handle_get_output")
+    .add("GET", "/api/output", process_routes.get_output)
     .add("GET", "/api/download-progress", "handle_get_download_progress")
     .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
     .add("GET", "/api/remote-tunnel/status", "handle_get_remote_tunnel_status")
@@ -1923,13 +1761,13 @@ API_ROUTER = (
     .add("POST", "/api/hf/download-cancel", hf_download_routes.cancel_download)
     .add("POST", "/api/install", "handle_post_install")
     .add("POST", "/api/update", "handle_post_update")
-    .add("POST", "/api/launch", "handle_post_launch")
-    .add("POST", "/api/stop", "handle_post_stop")
+    .add("POST", "/api/launch", process_routes.launch)
+    .add("POST", "/api/stop", process_routes.stop)
     .add("POST", "/api/shutdown", "handle_post_shutdown")
     .add("POST", "/api/restart", "handle_post_restart")
-    .add("POST", "/api/cleanup-llama", "handle_post_cleanup_llama")
+    .add("POST", "/api/cleanup-llama", process_routes.cleanup_llama)
     .add("POST", "/api/app-update", "handle_post_app_update")
-    .add("POST", "/api/send-input", "handle_post_send_input")
+    .add("POST", "/api/send-input", process_routes.send_input)
     .add("POST", "/api/presets", presets_routes.save_preset)
     .add("POST", "/api/open-folder", "handle_post_open_folder")
     .add("POST", "/api/select-file", file_picker_routes.select_file)

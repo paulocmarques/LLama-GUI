@@ -141,8 +141,8 @@ Exit criteria:
 
 Goal: move subprocess/threaded code after state ownership and adapters are stable.
 
-- [ ] Create `backend/services/process_manager.py` and `backend/routes/process.py`.
-- [ ] Move launch, stop, send-input, output polling, and process-running checks.
+- [x] Create `backend/services/process_manager.py` and `backend/routes/process.py`.
+- [x] Move launch, stop, send-input, output polling, and process-running checks.
 - [ ] Create `backend/services/llama_manager.py`.
 - [ ] Move release selection, download, SHA256 verification, extraction, backend specs, and install/update operations.
 - [ ] Create `backend/routes/install.py`.
@@ -216,6 +216,7 @@ Exit criteria:
 - Phase 3 completed. `backend/routing.py` now owns route registration/lookup, API routes dispatch through `API_ROUTER`, and `/v1/*` proxy plus static UI handling remain outside API dispatch. Follow-up review fixes added typed prefix storage, documented prefix matching semantics, and tests for router prefix contracts plus string/callable dispatch paths; latest run: `python -m unittest discover -s tests` passed 54 tests.
 - Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` now uses a typed `BackendServices` bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 54 tests.
 - Phase 5 completed. Hugging Face validation, repo file listing, background model download, duplicate-file handling, status polling, and cancellation now live under `backend/services/hf_download.py` and `backend/routes/hf_download.py`. Web search/page fetching now live under `backend/services/web_search.py` and `backend/routes/search.py`; chat request shaping and streaming dispatch now live under `backend/services/chat.py` and `backend/routes/chat.py`. Native file selection now lives under `backend/services/file_picker.py` and `backend/routes/file_picker.py`. `server.py` keeps thin compatibility delegates for baseline tests and older internal references. Latest run: `python -m unittest discover -s tests` passed 63 tests.
+- Phase 6A completed. Process/runtime routes now dispatch through `backend/routes/process.py`, with implementation in `backend/services/process_manager.py`; dead process Handler methods were removed and compatibility delegates retained in `server.py` for old helper names and remaining internal callers. Latest run: `python -m unittest discover -s tests` passed 77 tests.
 - The safest first implementation milestone is Phase 0 plus the non-invasive parts of Phase 1.
 - Avoid extracting process, install, tunnel, shutdown, or restart logic until the shared state/context and lifecycle abstractions are in place.
 - Keep route extraction incremental. One route group per commit is preferred.

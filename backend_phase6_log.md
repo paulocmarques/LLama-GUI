@@ -1,0 +1,120 @@
+# Phase 6 Backend Refactor Log
+
+Focused working log for Phase 6 of the backend architecture refactor.
+
+`backend_progress.md` remains the high-level roadmap. This file tracks the tricky details while extracting subprocess, install, tunnel, git-update, and lifecycle code from `server.py`.
+
+---
+
+## Phase 6 Scope
+
+Goal: move high-risk backend code into service and route modules while preserving current behavior.
+
+Primary route groups:
+
+- Process/runtime: `/api/output`, `/api/launch`, `/api/stop`, `/api/send-input`, `/api/cleanup-llama`
+- Install/update: `/api/releases`, `/api/install`, `/api/update`, `/api/download-progress`
+- Remote tunnel: `/api/remote-tunnel/status`, `/api/remote-tunnel/start`, `/api/remote-tunnel/stop`
+- App update: `/api/app-update-status`, `/api/app-update`
+- Lifecycle: `/api/shutdown`, `/api/restart`, `main()` cleanup behavior
+
+---
+
+## Working Rules
+
+- Keep `server.py` as the compatibility entrypoint until Phase 7.
+- Preserve existing API response shapes unless a change is explicitly recorded here.
+- Keep optional dependencies lazy and feature-scoped.
+- Do not let new service modules import `server.py`.
+- Prefer one route group per extraction checkpoint.
+- Preserve thread locks and process cleanup order before improving structure.
+- Add or update tests at each checkpoint before moving to the next route group.
+
+---
+
+## Risk Register
+
+### Process/runtime
+
+- Windows process-group behavior depends on `CREATE_NEW_PROCESS_GROUP` and `CTRL_BREAK_EVENT`.
+- Output polling depends on bounded shared buffer behavior.
+- `llama-server` target detection updates the `/v1/*` proxy target.
+- `llama-cli` and `llama-server` must both keep working.
+
+### Install/update
+
+- Install progress must remain thread-safe and visible to the UI.
+- SHA256 verification, archive extraction, and config writes must preserve current behavior.
+- Install must be blocked while a llama process is running.
+
+### Remote tunnel
+
+- Tunnel status affects CORS allowed origins.
+- Cloudflared startup parses stderr for the public URL.
+- Stop logic must clear process state and tunnel URL consistently.
+
+### App update/lifecycle
+
+- Git dirty-path classification must remain conservative.
+- Restart/shutdown order matters: stop llama process, stop tunnel, shut down GUI server.
+- App update restart must not strand the frontend without the cache-busting reload signal.
+
+---
+
+## Milestone Plan
+
+### 6A: Process/runtime extraction
+
+- [x] Create `backend/services/process_manager.py`.
+- [x] Create `backend/routes/process.py`.
+- [x] Move process-running, output snapshot, launch, stop, send-input, and cleanup helpers.
+- [x] Register process routes as callable handlers in `API_ROUTER`.
+- [x] Keep thin compatibility delegates in `server.py` while tests still reference old names.
+- [x] Remove dead process Handler route methods after callable routes are registered.
+- [x] Verify with unit tests and full backend test suite.
+
+### 6B: Install/update extraction
+
+- Create `backend/services/llama_manager.py`.
+- Create `backend/routes/install.py`.
+- Move release fetching, install progress, download, hash verification, extraction, and install/update route logic.
+- Verify install route error paths and progress snapshots.
+
+### 6C: Remote tunnel extraction
+
+- Create `backend/services/tunnel.py`.
+- Create `backend/routes/tunnel.py`.
+- Move cloudflared download/start/stop/status behavior.
+- Verify status snapshots and start/stop state transitions.
+
+### 6D: App update extraction
+
+- Create `backend/services/git_update.py`.
+- Create `backend/routes/git_update.py`.
+- Move git status, safe dirty path classification, dependency install, and app update execution.
+- Verify dirty-path classification and update status behavior.
+
+### 6E: Lifecycle extraction
+
+- Create `backend/services/lifecycle.py`.
+- Move shutdown/restart coordination.
+- Make `main()`, shutdown/restart routes, and app-update restart flow call lifecycle helpers.
+- Verify cleanup order.
+
+---
+
+## Checkpoint Log
+
+### 2026-05-14
+
+- Created this log before starting Phase 6 code movement.
+- Initial implementation target: 6A process/runtime extraction.
+- Created `backend/services/process_manager.py` and `backend/routes/process.py`.
+- Moved process-running checks, output snapshotting, launch, stop, stdin send, launch API target parsing, and llama cleanup implementation behind the process service.
+- Registered `/api/output`, `/api/launch`, `/api/stop`, `/api/send-input`, and `/api/cleanup-llama` as callable extracted routes.
+- Kept `server.py` compatibility delegates for old helper names and remaining internal callers.
+- Added route tests for output polling, stdin send, cleanup blocking, and cleanup config reset behavior.
+- Verification: `python -m unittest discover -s tests` passed 74 tests.
+- Removed dead process Handler methods that were no longer registered by `API_ROUTER`.
+- Added direct service tests for launch-argument flattening and launch API target parsing/fallback behavior.
+- 6A complete. Verification: `python -m unittest discover -s tests` passed 77 tests.
