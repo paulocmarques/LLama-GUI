@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import chat, file_picker, hf_download, install, metrics, models, presets, process, search, status
+from backend.routes import chat, file_picker, hf_download, install, metrics, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
 from backend.services import llama_manager
 from backend.services import process_manager
@@ -886,6 +886,134 @@ class InstallRouteTests(unittest.TestCase):
         install_release.assert_called_once_with(
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
+
+
+class TunnelRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ctx = make_context(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_status_returns_idle_by_default(self):
+        response = DummyResponse()
+        tunnel.get_status(Request("GET", "/api/remote-tunnel/status", "", {}), response, self.ctx)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "idle")
+        self.assertEqual(response.payload["url"], "")
+        self.assertEqual(response.payload["message"], "Remote tunnel is not running.")
+        self.assertFalse(response.payload["running"])
+
+    def test_status_reflects_set_state(self):
+        from backend.services import tunnel as tunnel_service
+        tunnel_service.set_remote_tunnel_state(
+            self.ctx, status="running", url="https://test.trycloudflare.com",
+            message="Running", log="test log",
+        )
+        response = DummyResponse()
+        tunnel.get_status(Request("GET", "/api/remote-tunnel/status", "", {}), response, self.ctx)
+        self.assertEqual(response.payload["status"], "running")
+        self.assertEqual(response.payload["url"], "https://test.trycloudflare.com")
+        self.assertIn("test log", response.payload["log"])
+        self.assertFalse(response.payload["running"])
+
+    def test_status_detects_dead_process(self):
+        from backend.services import tunnel as tunnel_service
+        class DeadProcess:
+            def poll(self):
+                return -1
+        self.ctx.state.remote_tunnel_process = DeadProcess()
+        tunnel_service.set_remote_tunnel_state(
+            self.ctx, status="running", url="https://test.trycloudflare.com",
+        )
+        response = DummyResponse()
+        tunnel.get_status(Request("GET", "/api/remote-tunnel/status", "", {}), response, self.ctx)
+        self.assertEqual(response.payload["status"], "error")
+        self.assertEqual(response.payload["message"], "Remote tunnel process exited.")
+        self.assertFalse(response.payload["running"])
+
+    def test_start_rejects_invalid_host(self):
+        calls = []
+
+        def set_target(host, port):
+            calls.append((host, port))
+            raise ValueError("Invalid proxy host: bad!")
+
+        self.ctx.services.set_llama_api_target = set_target
+        response = DummyResponse()
+        tunnel.start(
+            Request("POST", "/api/remote-tunnel/start", "", {}, body={"host": "bad!"}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("Invalid proxy host", response.payload["error"])
+
+    def test_start_spawns_worker_thread(self):
+        self.ctx.services.set_llama_api_target = lambda host, port: {"host": host or "127.0.0.1", "port": port or 8080}
+        threads = []
+
+        class FakeThread:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.started = False
+            def start(self):
+                self.started = True
+                threads.append(self)
+
+        with mock.patch("backend.services.tunnel.threading.Thread", FakeThread):
+            response = DummyResponse()
+            tunnel.start(
+                Request("POST", "/api/remote-tunnel/start", "", {}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "preparing")
+        self.assertEqual(response.payload["message"], "Preparing Cloudflare tunnel...")
+        self.assertFalse(response.payload["running"])
+        self.assertEqual(len(threads), 1)
+        self.assertTrue(threads[0].kwargs.get("daemon"))
+
+    def test_stop_returns_idle_when_no_process(self):
+        response = DummyResponse()
+        tunnel.stop(
+            Request("POST", "/api/remote-tunnel/stop", "", {}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "stopped")
+        self.assertEqual(response.payload["message"], "Remote tunnel stopped.")
+        self.assertFalse(response.payload["running"])
+
+    def test_stop_clears_process(self):
+        self.ctx.services.current_platform = "win32"
+        killed = []
+
+        class FakeProcess:
+            def poll(self):
+                return None
+
+            def send_signal(self, sig):
+                killed.append(sig)
+
+            def wait(self, timeout):
+                return 0
+
+        self.ctx.state.remote_tunnel_process = FakeProcess()
+        response = DummyResponse()
+        tunnel.stop(
+            Request("POST", "/api/remote-tunnel/stop", "", {}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "stopped")
+        self.assertIsNone(self.ctx.state.remote_tunnel_process)
+        self.assertEqual(len(killed), 1)
 
 
 if __name__ == "__main__":

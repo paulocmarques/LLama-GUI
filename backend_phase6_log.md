@@ -82,10 +82,10 @@ Primary route groups:
 
 ### 6C: Remote tunnel extraction
 
-- Create `backend/services/tunnel.py`.
-- Create `backend/routes/tunnel.py`.
-- Move cloudflared download/start/stop/status behavior.
-- Verify status snapshots and start/stop state transitions.
+- [x] Create `backend/services/tunnel.py`.
+- [x] Create `backend/routes/tunnel.py`.
+- [x] Move cloudflared download/start/stop/status behavior.
+- [x] Verify status snapshots and start/stop state transitions.
 
 ### 6D: App update extraction
 
@@ -130,3 +130,15 @@ Primary route groups:
 - Cleaned up unused imports (`zipfile`, `hashlib`, `tempfile`) from `server.py`.
 - Added route tests for releases listing, download progress snapshot, install validation (missing tag/backend, unknown backend, process-running guard, in-progress guard), update validation (nothing-installed, process-running guard), and already-latest detection.
 - Verification: `python -m unittest discover -s tests` passed 87 tests.
+
+### 2026-05-14 (cont.)
+
+- 6C remote tunnel extraction.
+- Created `backend/services/tunnel.py` and `backend/routes/tunnel.py`.
+- Moved `get_cloudflared_asset`, `set_remote_tunnel_state`, `get_remote_tunnel_snapshot`, `ensure_cloudflared`, `_start_remote_tunnel_worker`, `start_remote_tunnel`, and `stop_remote_tunnel` behind the tunnel service.
+- Registered `/api/remote-tunnel/status`, `/api/remote-tunnel/start`, and `/api/remote-tunnel/stop` as callable extracted routes.
+- Kept `server.py` compatibility delegates for `set_remote_tunnel_state`, `get_remote_tunnel_snapshot`, and `stop_remote_tunnel` (needed by lifecycle code and tests).
+- Removed dead Handler methods: `handle_get_remote_tunnel_status`, `handle_post_remote_tunnel_start`, `handle_post_remote_tunnel_stop`.
+- Cleaned up unused imports (`tarfile`, `shutil`, `signal`, `re`, `pathlib`) from `server.py`.
+- Added route tests for idle status, reflected state, dead-process detection, invalid host rejection, worker thread spawning, stop with/witout process, and process cleanup.
+- Verification: `python -m unittest discover -s tests` passed 96 tests.

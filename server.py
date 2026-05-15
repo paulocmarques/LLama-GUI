@@ -6,22 +6,16 @@ import socket
 import ssl
 import subprocess
 import sys
-import signal
 import threading
-import tarfile
-import shutil
 import urllib.request
 import urllib.parse
 import urllib.error
-import re
 import time
-import pathlib
 import ipaddress
 
 from backend.config import (
     APP_LOGO_FILE,
     APP_REPO_URL,
-    CLOUDFLARED_DIR,
     CONFIG_FILE,
     GUI_HOST,
     GUI_PORT,
@@ -39,7 +33,6 @@ from backend.config import (
     RESTART_STARTUP_DELAY_SECONDS,
     ROOT_DIR as BASE_DIR,
     TOOLS_DIR,
-    TUNNEL_LOG_LIMIT,
     UI_DIR,
     WEB_SEARCH_FETCH_BYTES,
     WEB_SEARCH_MAX_RESULTS,
@@ -69,11 +62,13 @@ from backend.routes import install as install_routes
 from backend.routes import process as process_routes
 from backend.routes import search as search_routes
 from backend.routes import status as status_routes
+from backend.routes import tunnel as tunnel_routes
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
 from backend.services import llama_manager as llama_manager_service
 from backend.services import process_manager as process_service
+from backend.services import tunnel as tunnel_service
 from backend.services import web_search as web_search_service
 
 try:
@@ -211,42 +206,8 @@ def download_file(url, dest, progress_cb=None):
     return llama_manager_service.download_file(APP_CONTEXT, url, dest, progress_cb)
 
 
-def get_cloudflared_asset():
-    if CURRENT_PLATFORM == "win32":
-        return {
-            "url": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
-            "archive": False,
-            "filename": "cloudflared.exe",
-        }
-    if CURRENT_PLATFORM == "darwin":
-        arch = "arm64" if CURRENT_ARCH == "arm64" else "amd64"
-        return {
-            "url": f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-{arch}.tgz",
-            "archive": True,
-            "filename": "cloudflared",
-        }
-    if CURRENT_PLATFORM.startswith("linux"):
-        arch = "arm64" if CURRENT_ARCH == "arm64" else "amd64"
-        return {
-            "url": f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}",
-            "archive": False,
-            "filename": f"cloudflared-linux-{arch}",
-        }
-    return None
-
-
 def set_remote_tunnel_state(status=None, url=None, message=None, log=None):
-    updates = {}
-    if status is not None:
-        updates["status"] = status
-    if url is not None:
-        updates["url"] = url
-    if message is not None:
-        updates["message"] = message
-    if log is not None:
-        updates["log"] = log[-TUNNEL_LOG_LIMIT:]
-    with STATE.remote_tunnel_lock:
-        return STATE.remote_tunnel.update(**updates)
+    return tunnel_service.set_remote_tunnel_state(APP_CONTEXT, status, url, message, log)
 
 
 def parse_port(value, default=LLAMA_PORT):
@@ -290,180 +251,11 @@ def parse_launch_api_target(args_list):
 
 
 def get_remote_tunnel_snapshot():
-    with STATE.remote_tunnel_lock:
-        proc = STATE.remote_tunnel_process
-        snapshot = STATE.remote_tunnel.snapshot()
-        if proc is not None and proc.poll() is not None and snapshot["status"] in {
-            "preparing",
-            "downloading",
-            "starting",
-            "running",
-        }:
-            snapshot["status"] = "error"
-            snapshot["message"] = "Remote tunnel process exited."
-            STATE.remote_tunnel.replace(snapshot)
-        snapshot["running"] = proc is not None and proc.poll() is None
-        return snapshot
-
-
-def ensure_cloudflared():
-    spec = get_cloudflared_asset()
-    if not spec:
-        raise RuntimeError(f"Cloudflare tunnel is not supported on {CURRENT_PLATFORM}/{CURRENT_ARCH}.")
-
-    CLOUDFLARED_DIR.mkdir(parents=True, exist_ok=True)
-    binary_path = CLOUDFLARED_DIR / spec["filename"]
-    if binary_path.exists():
-        if CURRENT_PLATFORM != "win32":
-            os.chmod(binary_path, 0o755)
-        return binary_path
-
-    set_remote_tunnel_state(status="downloading", message="Downloading Cloudflare tunnel helper...")
-    if spec["archive"]:
-        archive_path = CLOUDFLARED_DIR / pathlib.Path(spec["url"]).name
-        download_file(spec["url"], archive_path)
-        with tarfile.open(archive_path, "r:gz") as tf:
-            member = next(
-                (
-                    m
-                    for m in tf.getmembers()
-                    if pathlib.PurePosixPath(m.name).name == spec["filename"] and m.isfile()
-                ),
-                None,
-            )
-            if member is None:
-                raise RuntimeError("Downloaded cloudflared archive did not contain the expected binary.")
-            src = tf.extractfile(member)
-            if src is None:
-                raise RuntimeError("Could not extract cloudflared from archive.")
-            with open(binary_path, "wb") as out:
-                shutil.copyfileobj(src, out)
-        try:
-            archive_path.unlink()
-        except OSError:
-            pass
-    else:
-        download_file(spec["url"], binary_path)
-
-    if CURRENT_PLATFORM != "win32":
-        os.chmod(binary_path, 0o755)
-    return binary_path
-
-
-def _start_remote_tunnel_worker():
-    log = ""
-    try:
-        set_remote_tunnel_state(
-            status="preparing",
-            url="",
-            message="Preparing Cloudflare tunnel...",
-            log="",
-        )
-        binary_path = ensure_cloudflared()
-        set_remote_tunnel_state(status="starting", message="Starting Cloudflare tunnel...")
-
-        env = os.environ.copy()
-        if CURRENT_PLATFORM.startswith("linux"):
-            env.pop("LD_LIBRARY_PATH", None)
-
-        args = [
-            str(binary_path),
-            "tunnel",
-            "--url",
-            f"http://{GUI_HOST}:{GUI_PORT}",
-        ]
-        proc = subprocess.Popen(
-            args,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            cwd=str(CLOUDFLARED_DIR),
-            env=env,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-            if sys.platform == "win32"
-            else 0,
-        )
-        with STATE.remote_tunnel_lock:
-            STATE.remote_tunnel_process = proc
-
-        pattern = re.compile(r"https://[\w.-]+\.trycloudflare\.com")
-        while True:
-            line = proc.stderr.readline() if proc.stderr else ""
-            if not line:
-                break
-            log = (log + line)[-TUNNEL_LOG_LIMIT:]
-            found = pattern.search(line)
-            if found:
-                set_remote_tunnel_state(
-                    status="running",
-                    url=found.group(0),
-                    message="Remote tunnel is running.",
-                    log=log,
-                )
-            else:
-                set_remote_tunnel_state(log=log)
-
-        exit_code = proc.wait()
-        with STATE.remote_tunnel_lock:
-            if STATE.remote_tunnel_process is proc:
-                STATE.remote_tunnel_process = None
-            current_status = STATE.remote_tunnel.snapshot()["status"]
-        if current_status != "stopped":
-            set_remote_tunnel_state(
-                status="error",
-                url="",
-                message=f"Cloudflare tunnel exited with code {exit_code}.",
-                log=log,
-            )
-    except Exception as exc:
-        with STATE.remote_tunnel_lock:
-            STATE.remote_tunnel_process = None
-        set_remote_tunnel_state(status="error", url="", message=str(exc), log=log)
-
-
-def start_remote_tunnel():
-    with STATE.remote_tunnel_lock:
-        proc = STATE.remote_tunnel_process
-        snapshot = STATE.remote_tunnel.snapshot()
-        if proc is not None and proc.poll() is None:
-            return snapshot
-        if snapshot["status"] in {"preparing", "downloading", "starting"}:
-            return snapshot
-        STATE.remote_tunnel.update(
-            status="preparing",
-            url="",
-            message="Preparing Cloudflare tunnel...",
-            log="",
-        )
-    threading.Thread(target=_start_remote_tunnel_worker, daemon=True).start()
-    return get_remote_tunnel_snapshot()
+    return tunnel_service.get_remote_tunnel_snapshot(APP_CONTEXT)
 
 
 def stop_remote_tunnel():
-    with STATE.remote_tunnel_lock:
-        proc = STATE.remote_tunnel_process
-        STATE.remote_tunnel_process = None
-        STATE.remote_tunnel.update(
-            status="stopped",
-            url="",
-            message="Remote tunnel stopped.",
-        )
-
-    if proc is not None and proc.poll() is None:
-        try:
-            if CURRENT_PLATFORM == "win32":
-                proc.send_signal(signal.CTRL_BREAK_EVENT)
-            else:
-                proc.terminate()
-            proc.wait(timeout=5)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-    return get_remote_tunnel_snapshot()
+    return tunnel_service.stop_remote_tunnel(APP_CONTEXT)
 
 
 def sha256_file(filepath):
@@ -1253,25 +1045,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         )
         match.handler(request, Response(self), APP_CONTEXT)
 
-    def handle_get_remote_tunnel_status(self, parsed, body=None, params=None):
-        self.send_json(get_remote_tunnel_snapshot())
-
     def handle_get_app_update_status(self, parsed, body=None, params=None):
         try:
             self.send_json(get_app_update_status(fetch=True))
         except Exception as e:
             self.send_error_json(str(e), 500)
-
-    def handle_post_remote_tunnel_start(self, parsed, body=None, params=None):
-        try:
-            set_llama_api_target(body.get("host"), body.get("port"))
-        except Exception as e:
-            self.send_error_json(str(e), 400)
-            return
-        self.send_json(start_remote_tunnel())
-
-    def handle_post_remote_tunnel_stop(self, parsed, body=None, params=None):
-        self.send_json(stop_remote_tunnel())
 
     def handle_post_shutdown(self, parsed, body=None, params=None):
         shutting_down = shutdown_gui_server()
@@ -1378,15 +1156,15 @@ API_ROUTER = (
     .add("GET", "/api/output", process_routes.get_output)
     .add("GET", "/api/download-progress", install_routes.get_download_progress)
     .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
-    .add("GET", "/api/remote-tunnel/status", "handle_get_remote_tunnel_status")
+    .add("GET", "/api/remote-tunnel/status", tunnel_routes.get_status)
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/models", models_routes.list_models)
     .add("GET", "/api/app-update-status", "handle_get_app_update_status")
     .add("GET", "/api/presets", presets_routes.list_presets)
     .add("POST", "/api/web-search", search_routes.search)
     .add("POST", "/api/chat/completions", chat_routes.completions)
-    .add("POST", "/api/remote-tunnel/start", "handle_post_remote_tunnel_start")
-    .add("POST", "/api/remote-tunnel/stop", "handle_post_remote_tunnel_stop")
+    .add("POST", "/api/remote-tunnel/start", tunnel_routes.start)
+    .add("POST", "/api/remote-tunnel/stop", tunnel_routes.stop)
     .add("POST", "/api/hf/repo-files", hf_download_routes.list_repo_files)
     .add("POST", "/api/hf/download", hf_download_routes.start_download)
     .add("POST", "/api/hf/download-cancel", hf_download_routes.cancel_download)
