@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from backend.context import AppContext, AppPaths, ServerConfig
+from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
 from backend.routes import metrics, models, presets, status
 
@@ -98,6 +98,34 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(delete_response.payload, {"deleted": True})
             self.assertFalse((ctx.paths.presets / "My_Preset.json").exists())
 
+    def test_preset_delete_uses_same_sanitizer_as_save(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            save_request = Request(
+                "POST",
+                "/api/presets",
+                "",
+                {},
+                body={"name": "../Odd Name. ", "data": {"ok": True}},
+            )
+            presets.save_preset(save_request, response, ctx)
+
+            self.assertEqual(response.payload, {"saved": True, "name": "__Odd Name"})
+
+            delete_response = DummyResponse()
+            delete_request = Request(
+                "DELETE",
+                "/api/presets/..%2FOdd%20Name.%20",
+                "",
+                {},
+                params={"name": "..%2FOdd%20Name.%20"},
+            )
+            presets.delete_preset(delete_request, delete_response, ctx)
+
+            self.assertEqual(delete_response.payload, {"deleted": True})
+            self.assertFalse((ctx.paths.presets / "__Odd Name.json").exists())
+
     def test_metrics_route_uses_context_service(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -107,7 +135,7 @@ class ExtractedRouteTests(unittest.TestCase):
                 calls.append((host, port))
                 return "llama metrics", ""
 
-            ctx.services["get_local_llama_metrics"] = get_local_llama_metrics
+            ctx.services.get_local_llama_metrics = get_local_llama_metrics
             response = DummyResponse()
 
             metrics.get_metrics(
@@ -125,20 +153,18 @@ class ExtractedRouteTests(unittest.TestCase):
             cli_path = ctx.paths.llama_bin / "llama-cli.exe"
             cli_path.parent.mkdir(parents=True)
             cli_path.write_text("")
-            ctx.services.update(
-                {
-                    "backend_specs": {"cpu": {"label": "CPU"}},
-                    "binary_suffix": ".exe",
-                    "current_arch": "x64",
-                    "current_platform": "win32",
-                    "find_tool_executable": lambda tool: ctx.paths.llama_bin / f"{tool}.exe",
-                    "get_platform_label": lambda: "Windows",
-                    "get_runtime_files": lambda: [SimpleNamespace(name="runtime.dll")],
-                    "get_tool_filename": lambda tool: f"{tool}.exe",
-                    "is_process_running": lambda: False,
-                    "llama_tools": ["llama-cli"],
-                    "load_config": lambda: {"tag": "b1", "backend": "cpu"},
-                }
+            ctx.services = BackendServices(
+                backend_specs={"cpu": {"label": "CPU"}},
+                binary_suffix=".exe",
+                current_arch="x64",
+                current_platform="win32",
+                find_tool_executable=lambda tool: ctx.paths.llama_bin / f"{tool}.exe",
+                get_platform_label=lambda: "Windows",
+                get_runtime_files=lambda: [SimpleNamespace(name="runtime.dll")],
+                get_tool_filename=lambda tool: f"{tool}.exe",
+                is_process_running=lambda: False,
+                llama_tools=["llama-cli"],
+                load_config=lambda: {"tag": "b1", "backend": "cpu"},
             )
             response = DummyResponse()
 
@@ -147,6 +173,17 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertTrue(response.payload["installed"])
             self.assertEqual(response.payload["models_dir"], str(ctx.paths.models))
             self.assertEqual(response.payload["available_backends"], [{"id": "cpu", "label": "CPU"}])
+
+    def test_status_route_returns_error_when_service_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.services.load_config = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
+            response = DummyResponse()
+
+            status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+            self.assertEqual(response.status, 500)
+            self.assertEqual(response.payload["error"], "Failed to read backend status: boom")
 
 
 if __name__ == "__main__":

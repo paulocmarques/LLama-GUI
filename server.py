@@ -290,21 +290,17 @@ def get_runtime_files():
     return runtime_files
 
 
-APP_CONTEXT.services.update(
-    {
-        "backend_specs": BACKEND_SPECS,
-        "binary_suffix": BINARY_SUFFIX,
-        "current_arch": CURRENT_ARCH,
-        "current_platform": CURRENT_PLATFORM,
-        "find_tool_executable": find_tool_executable,
-        "get_platform_label": get_platform_label,
-        "get_runtime_files": get_runtime_files,
-        "get_tool_filename": get_tool_filename,
-        "is_process_running": is_process_running,
-        "llama_tools": LLAMA_TOOLS,
-        "load_config": load_config,
-    }
-)
+APP_CONTEXT.services.backend_specs = BACKEND_SPECS
+APP_CONTEXT.services.binary_suffix = BINARY_SUFFIX
+APP_CONTEXT.services.current_arch = CURRENT_ARCH
+APP_CONTEXT.services.current_platform = CURRENT_PLATFORM
+APP_CONTEXT.services.find_tool_executable = find_tool_executable
+APP_CONTEXT.services.get_platform_label = get_platform_label
+APP_CONTEXT.services.get_runtime_files = get_runtime_files
+APP_CONTEXT.services.get_tool_filename = get_tool_filename
+APP_CONTEXT.services.is_process_running = is_process_running
+APP_CONTEXT.services.llama_tools = LLAMA_TOOLS
+APP_CONTEXT.services.load_config = load_config
 
 
 def download_file(url, dest, progress_cb=None):
@@ -1860,7 +1856,7 @@ def get_local_llama_metrics(host, port):
         return None, f"Failed to fetch llama-server metrics: {exc}"
 
 
-APP_CONTEXT.services["get_local_llama_metrics"] = get_local_llama_metrics
+APP_CONTEXT.services.get_local_llama_metrics = get_local_llama_metrics
 
 
 def write_sse(wfile, data):

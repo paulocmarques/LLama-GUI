@@ -214,7 +214,7 @@ Exit criteria:
 - Phase 1 completed. Runtime process, install/update, HF download, tunnel, output buffer, GUI server, and llama API target state now live under `APP_CONTEXT.state`; latest run: `python -m unittest discover -s tests` passed 26 tests.
 - Phase 2 completed. `backend/http.py` now owns response helpers, standardized API errors, CORS helpers, and SSE writing; latest run: `python -m unittest discover -s tests` passed 35 tests.
 - Phase 3 completed. `backend/routing.py` now owns route registration/lookup, API routes dispatch through `API_ROUTER`, and `/v1/*` proxy plus static UI handling remain outside API dispatch; latest run: `python -m unittest discover -s tests` passed 41 tests.
-- Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` is the temporary bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 45 tests.
+- Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` now uses a typed `BackendServices` bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 47 tests.
 - The safest first implementation milestone is Phase 0 plus the non-invasive parts of Phase 1.
 - Avoid extracting process, install, tunnel, shutdown, or restart logic until the shared state/context and lifecycle abstractions are in place.
 - Keep route extraction incremental. One route group per commit is preferred.

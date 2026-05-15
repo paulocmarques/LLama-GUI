@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Callable, Mapping, Optional, Sequence, Tuple
 
 from . import config
 from .state import ServerState
@@ -33,12 +33,32 @@ class ServerConfig:
     app_repo_url: str = config.APP_REPO_URL
 
 
+def _missing_service(*args: Any, **kwargs: Any) -> Any:
+    raise RuntimeError("Backend service has not been configured.")
+
+
+@dataclass
+class BackendServices:
+    backend_specs: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    binary_suffix: str = ""
+    current_arch: str = "unknown"
+    current_platform: str = "unknown"
+    find_tool_executable: Callable[[str], Path] = _missing_service
+    get_local_llama_metrics: Callable[[str, str], Tuple[Optional[str], str]] = _missing_service
+    get_platform_label: Callable[[], str] = _missing_service
+    get_runtime_files: Callable[[], Sequence[Path]] = _missing_service
+    get_tool_filename: Callable[[str], str] = _missing_service
+    is_process_running: Callable[[], bool] = _missing_service
+    llama_tools: Sequence[str] = field(default_factory=tuple)
+    load_config: Callable[[], Mapping[str, Any]] = _missing_service
+
+
 @dataclass
 class AppContext:
     paths: AppPaths = field(default_factory=AppPaths)
     config: ServerConfig = field(default_factory=ServerConfig)
     state: ServerState = field(default_factory=ServerState)
-    services: Dict[str, Any] = field(default_factory=dict)
+    services: BackendServices = field(default_factory=BackendServices)
 
 
 DEFAULT_CONTEXT = AppContext()

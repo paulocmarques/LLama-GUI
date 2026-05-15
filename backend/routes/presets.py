@@ -5,6 +5,11 @@ import re
 import urllib.parse
 
 
+def sanitize_preset_name(name):
+    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
+    return safe_name.replace("..", "_").strip(". ")
+
+
 def list_presets(request, response, ctx):
     presets = []
     presets_dir = ctx.paths.presets
@@ -13,7 +18,7 @@ def list_presets(request, response, ctx):
             try:
                 with open(path, "r") as preset_file:
                     presets.append({"name": path.stem, "data": json.load(preset_file)})
-            except Exception:
+            except (json.JSONDecodeError, OSError):
                 pass
     response.json(presets)
 
@@ -28,8 +33,7 @@ def save_preset(request, response, ctx):
 
     presets_dir = ctx.paths.presets
     presets_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r'[<>:"/\\|?*]', "_", name)
-    safe_name = safe_name.replace("..", "_").strip(". ")
+    safe_name = sanitize_preset_name(name)
     if not safe_name:
         response.error("Invalid preset name", 400)
         return
@@ -41,7 +45,10 @@ def save_preset(request, response, ctx):
 
 def delete_preset(request, response, ctx):
     name = request.params.get("name", "")
-    safe_name = re.sub(r'[<>:"/\\|?*]', "_", urllib.parse.unquote(name))
+    safe_name = sanitize_preset_name(urllib.parse.unquote(name))
+    if not safe_name:
+        response.error("Invalid preset name", 400)
+        return
     preset_file = ctx.paths.presets / f"{safe_name}.json"
     if preset_file.exists():
         preset_file.unlink()
