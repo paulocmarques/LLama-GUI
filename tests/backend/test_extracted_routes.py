@@ -992,6 +992,7 @@ class TunnelRouteTests(unittest.TestCase):
 
     def test_stop_clears_process(self):
         self.ctx.services.current_platform = "win32"
+        ctrl_break_event = object()
         killed = []
 
         class FakeProcess:
@@ -1006,15 +1007,20 @@ class TunnelRouteTests(unittest.TestCase):
 
         self.ctx.state.remote_tunnel_process = FakeProcess()
         response = DummyResponse()
-        tunnel.stop(
-            Request("POST", "/api/remote-tunnel/stop", "", {}),
-            response,
-            self.ctx,
-        )
+        with mock.patch(
+            "backend.services.tunnel.signal.CTRL_BREAK_EVENT",
+            ctrl_break_event,
+            create=True,
+        ):
+            tunnel.stop(
+                Request("POST", "/api/remote-tunnel/stop", "", {}),
+                response,
+                self.ctx,
+            )
         self.assertEqual(response.status, 200)
         self.assertEqual(response.payload["status"], "stopped")
         self.assertIsNone(self.ctx.state.remote_tunnel_process)
-        self.assertEqual(len(killed), 1)
+        self.assertEqual(killed, [ctrl_break_event])
 
 
 class GitUpdateRouteTests(unittest.TestCase):
@@ -1620,7 +1626,7 @@ class LifecycleTests(unittest.TestCase):
 
     def test_open_folder_windows(self):
         with mock.patch("backend.services.lifecycle.sys.platform", "win32"), \
-             mock.patch("backend.services.lifecycle.os.startfile") as mock_sf:
+             mock.patch("backend.services.lifecycle.os.startfile", create=True) as mock_sf:
             lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
         mock_sf.assert_called_once()
 
