@@ -224,6 +224,12 @@ LLAMA_GUI_HOST=0.0.0.0 LLAMA_GUI_PORT=5240 python server.py
 
 Then open `http://<server-ip>:5240` from another machine. `LLAMA_GUI_PORT` is optional and defaults to `5240`.
 
+Access by IP address works by default. If you want to open the UI through a LAN hostname, mDNS name, or reverse-proxy hostname, explicitly trust that browser hostname too:
+
+```bash
+LLAMA_GUI_HOST=0.0.0.0 LLAMA_GUI_ALLOWED_HOSTS=llama-box.local python server.py
+```
+
 Do not expose this admin UI directly to the public internet. Llama GUI does not enforce its own authentication layer; use a trusted network, VPN, or authenticated reverse proxy.
 
 ## First-Run Checklist (60 Seconds)
@@ -501,7 +507,7 @@ Fix:
 ## Security Notes
 
 - Llama GUI is intended for local use (`127.0.0.1`).
-- `LLAMA_GUI_HOST=0.0.0.0` allows LAN access, but should only be used on trusted networks or behind a VPN/authenticated reverse proxy.
+- `LLAMA_GUI_HOST=0.0.0.0` allows LAN access by IP address, but should only be used on trusted networks or behind a VPN/authenticated reverse proxy. Hostname access requires `LLAMA_GUI_ALLOWED_HOSTS`.
 - The wrapper does not enforce its own authentication layer.
 - The Cloudflare remote tunnel is opt-in and does not start automatically.
 - If exposing beyond localhost, anyone with the tunnel URL can control the running Llama GUI session until you stop the tunnel.

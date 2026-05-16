@@ -46,8 +46,20 @@ def parse_gui_port(value: object, default: int = DEFAULT_GUI_PORT) -> int:
     return port
 
 
+def parse_gui_allowed_hosts(value: object) -> tuple[str, ...]:
+    hosts = []
+    for raw_host in str(value or "").split(","):
+        host = parse_gui_host(raw_host, default="")
+        if host:
+            host = host.lower()
+        if host and host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
+
+
 GUI_HOST = parse_gui_host(os.environ.get("LLAMA_GUI_HOST"), DEFAULT_GUI_HOST)
 GUI_PORT = parse_gui_port(os.environ.get("LLAMA_GUI_PORT"), DEFAULT_GUI_PORT)
+GUI_ALLOWED_HOSTS = parse_gui_allowed_hosts(os.environ.get("LLAMA_GUI_ALLOWED_HOSTS"))
 LLAMA_HOST = "127.0.0.1"
 LLAMA_PORT = 8080
 

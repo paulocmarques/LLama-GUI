@@ -40,7 +40,7 @@ class HttpCorsAdapterTests(unittest.TestCase):
         self.assertIn("http://localhost:5250", origins)
         self.assertIn("http://192.168.1.10:5250", origins)
 
-    def test_wildcard_bind_uses_request_host_origin_without_allowing_wildcard_origin(self):
+    def test_wildcard_bind_uses_ip_request_host_origin_without_allowing_wildcard_origin(self):
         origins = get_allowed_request_origins(
             gui_host="0.0.0.0",
             gui_port=5250,
@@ -52,6 +52,29 @@ class HttpCorsAdapterTests(unittest.TestCase):
         self.assertNotIn("http://0.0.0.0:5250", origins)
         self.assertTrue(is_safe_request_origin(self.make_headers(origin="http://192.168.1.20:5250"), origins))
         self.assertFalse(is_safe_request_origin(self.make_headers(origin="http://0.0.0.0:5250"), origins))
+
+    def test_wildcard_bind_rejects_untrusted_hostnames(self):
+        origins = get_allowed_request_origins(
+            gui_host="0.0.0.0",
+            gui_port=5250,
+            request_host="attacker.example:5250",
+            allow_request_host_origin=True,
+        )
+
+        self.assertNotIn("http://attacker.example:5250", origins)
+        self.assertFalse(is_safe_request_origin(self.make_headers(origin="http://attacker.example:5250"), origins))
+
+    def test_wildcard_bind_allows_explicitly_trusted_hostnames(self):
+        origins = get_allowed_request_origins(
+            gui_host="0.0.0.0",
+            gui_port=5250,
+            request_host="llama-box.local:5250",
+            allow_request_host_origin=True,
+            trusted_hosts=("llama-box.local",),
+        )
+
+        self.assertIn("http://llama-box.local:5250", origins)
+        self.assertTrue(is_safe_request_origin(self.make_headers(origin="http://llama-box.local:5250"), origins))
 
     def test_origin_and_referer_validation(self):
         allowed = get_allowed_request_origins()

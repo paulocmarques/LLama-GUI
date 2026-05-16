@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from email.message import Message
+import ipaddress
 import json
 from typing import Any, Mapping, Optional, Sequence
 import urllib.parse
@@ -32,6 +33,7 @@ def get_allowed_request_origins(
     gui_port: int = config.GUI_PORT,
     request_host: str = "",
     allow_request_host_origin: bool = False,
+    trusted_hosts: Sequence[str] = config.GUI_ALLOWED_HOSTS,
 ) -> tuple[str, ...]:
     allowed = []
     for host in LOCAL_BROWSER_HOSTS:
@@ -45,7 +47,7 @@ def get_allowed_request_origins(
             allowed.append(origin)
 
     if allow_request_host_origin:
-        request_origin = get_request_host_origin(request_host, gui_port)
+        request_origin = get_request_host_origin(request_host, gui_port, trusted_hosts)
         if request_origin and request_origin not in allowed:
             allowed.append(request_origin)
 
@@ -65,7 +67,25 @@ def build_http_origin(host: str, port: int) -> str:
     return f"http://{format_origin_host(host)}:{port}"
 
 
-def get_request_host_origin(host_header: str, gui_port: int) -> str:
+def is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
+def is_trusted_request_host(host: str, trusted_hosts: Sequence[str]) -> bool:
+    if host in LOCAL_BROWSER_HOSTS or is_ip_literal(host):
+        return True
+    return host.lower() in trusted_hosts
+
+
+def get_request_host_origin(
+    host_header: str,
+    gui_port: int,
+    trusted_hosts: Sequence[str] = config.GUI_ALLOWED_HOSTS,
+) -> str:
     value = str(host_header or "").strip()
     if not value:
         return ""
@@ -73,6 +93,8 @@ def get_request_host_origin(host_header: str, gui_port: int) -> str:
     host = parsed.hostname
     port = parsed.port or gui_port
     if not host or host in WILDCARD_BIND_HOSTS or port != gui_port:
+        return ""
+    if not is_trusted_request_host(host, trusted_hosts):
         return ""
     return build_http_origin(host, gui_port)
 

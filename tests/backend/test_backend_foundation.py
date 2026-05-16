@@ -27,12 +27,17 @@ class BackendConfigTests(unittest.TestCase):
         self.assertEqual(config.parse_gui_host("[::]"), "::")
         self.assertEqual(config.parse_gui_host("192.168.1.10"), "192.168.1.10")
         self.assertEqual(config.parse_gui_port("5250"), 5250)
+        self.assertEqual(
+            config.parse_gui_allowed_hosts("Llama-Box.local, 192.168.1.20, [::1]"),
+            ("llama-box.local", "192.168.1.20", "::1"),
+        )
 
     def test_gui_env_parsers_fall_back_for_invalid_values(self):
         self.assertEqual(config.parse_gui_host(""), "127.0.0.1")
         self.assertEqual(config.parse_gui_host("192.168.1.0/24"), "127.0.0.1")
         self.assertEqual(config.parse_gui_port("not-a-port"), 5240)
         self.assertEqual(config.parse_gui_port("70000"), 5240)
+        self.assertEqual(config.parse_gui_allowed_hosts("192.168.1.0/24,,\n"), ())
 
 
 class AtomicDictTests(unittest.TestCase):

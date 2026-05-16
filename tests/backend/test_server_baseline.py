@@ -65,7 +65,7 @@ class HandlerCorsTests(ServerStateIsolationMixin, unittest.TestCase):
         self.assertTrue(handler.is_safe_request_origin())
         self.assertIn("https://example.trycloudflare.com", handler.get_allowed_request_origins())
 
-    def test_wildcard_bind_allows_same_port_request_host_origin(self):
+    def test_wildcard_bind_allows_same_port_ip_request_host_origin(self):
         original_host = server.GUI_HOST
         try:
             server.GUI_HOST = "0.0.0.0"
@@ -74,10 +74,15 @@ class HandlerCorsTests(ServerStateIsolationMixin, unittest.TestCase):
                 host="192.168.1.20:5240",
             )
             wildcard = self.make_handler(origin="http://0.0.0.0:5240", host="0.0.0.0:5240")
+            untrusted = self.make_handler(
+                origin="http://attacker.example:5240",
+                host="attacker.example:5240",
+            )
 
             self.assertTrue(handler.is_safe_request_origin())
             self.assertIn("http://192.168.1.20:5240", handler.get_allowed_request_origins())
             self.assertFalse(wildcard.is_safe_request_origin())
+            self.assertFalse(untrusted.is_safe_request_origin())
         finally:
             server.GUI_HOST = original_host
 
