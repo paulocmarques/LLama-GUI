@@ -4,6 +4,7 @@ Keep this module free of optional third-party imports so the server can import i
 during startup on a minimal Python environment.
 """
 
+import os
 from pathlib import Path
 
 
@@ -20,8 +21,45 @@ APP_LOGO_FILE = ROOT_DIR / "Llama-GUI Logo.png"
 TOOLS_DIR = ROOT_DIR / "tools"
 CLOUDFLARED_DIR = TOOLS_DIR / "cloudflared"
 
-GUI_HOST = "127.0.0.1"
-GUI_PORT = 5240
+DEFAULT_GUI_HOST = "127.0.0.1"
+DEFAULT_GUI_PORT = 5240
+
+
+def parse_gui_host(value: object, default: str = DEFAULT_GUI_HOST) -> str:
+    host = str(value or "").strip()
+    if not host or any(ord(ch) < 32 for ch in host) or "/" in host:
+        return default
+    if host == "*":
+        return "0.0.0.0"
+    if host.startswith("[") and host.endswith("]"):
+        return host[1:-1]
+    return host
+
+
+def parse_gui_port(value: object, default: int = DEFAULT_GUI_PORT) -> int:
+    try:
+        port = int(str(value or "").strip())
+    except (TypeError, ValueError):
+        return default
+    if port < 1 or port > 65535:
+        return default
+    return port
+
+
+def parse_gui_allowed_hosts(value: object) -> tuple[str, ...]:
+    hosts = []
+    for raw_host in str(value or "").split(","):
+        host = parse_gui_host(raw_host, default="")
+        if host:
+            host = host.lower()
+        if host and host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
+
+
+GUI_HOST = parse_gui_host(os.environ.get("LLAMA_GUI_HOST"), DEFAULT_GUI_HOST)
+GUI_PORT = parse_gui_port(os.environ.get("LLAMA_GUI_PORT"), DEFAULT_GUI_PORT)
+GUI_ALLOWED_HOSTS = parse_gui_allowed_hosts(os.environ.get("LLAMA_GUI_ALLOWED_HOSTS"))
 LLAMA_HOST = "127.0.0.1"
 LLAMA_PORT = 8080
 
