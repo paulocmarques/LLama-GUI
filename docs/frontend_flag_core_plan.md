@@ -252,17 +252,17 @@ Expected result:
 
 - The shared flag core becomes the single supported API for flag reads, writes, and launch args.
 
-## Phase 5: Optional Later Cleanup
+## Phase 5: Focused Smoke Coverage And Slider Precision
 
-Status: Not started
+Status: Complete
 
-These are useful, but not required for the first maintainability win.
+- [x] Add Playwright smoke tests for mirrored controls and command preview.
+- [x] Change the Chat temperature range input to `step="0.01"` so the slider thumb matches exact two-decimal sampler preset values such as `0.31`.
 
-- [ ] Add ESLint focused on accidental globals and duplicate declarations.
-- [ ] Add `checkJs` and JSDoc types for flag definitions and flag core APIs.
-- [ ] Add Playwright smoke tests for mirrored controls and command preview.
-- [ ] Change the Chat temperature range input to `step="0.01"` so the slider thumb matches exact two-decimal sampler preset values such as `0.31`.
-- [ ] Consider native ES modules after classic-script extraction is stable.
+Phase 5 progress notes:
+
+- Updated the Chat temperature slider to use `step="0.01"` so two-decimal sampler preset values can be represented exactly by the native range control.
+- Added `tests/frontend/flag_sync_smoke.cjs`, a focused Playwright smoke script that serves `ui/`, stubs backend API calls, and verifies Quick Launch, Configure, Chat sampler, shared flag state, and command preview stay synchronized.
 
 ## Acceptance Criteria
 
