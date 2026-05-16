@@ -135,11 +135,15 @@ def _start_remote_tunnel_worker(ctx: AppContext) -> None:
         if ctx.services.current_platform.startswith("linux"):
             env.pop("LD_LIBRARY_PATH", None)
 
+        tunnel_host = ctx.config.gui_host
+        if tunnel_host in {"0.0.0.0", "::", "*"}:
+            tunnel_host = config.DEFAULT_GUI_HOST
+
         args = [
             str(binary_path),
             "tunnel",
             "--url",
-            f"http://{ctx.config.gui_host}:{ctx.config.gui_port}",
+            f"http://{tunnel_host}:{ctx.config.gui_port}",
         ]
         proc = subprocess.Popen(
             args,

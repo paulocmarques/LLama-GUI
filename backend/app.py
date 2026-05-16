@@ -31,6 +31,7 @@ from backend.http import (
     Request,
     Response,
     SseWriter,
+    WILDCARD_BIND_HOSTS,
     get_access_control_origin,
     get_allowed_request_origins,
     get_cors_methods,
@@ -546,7 +547,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def get_allowed_request_origins(self):
         tunnel_url = get_remote_tunnel_snapshot().get("url")
-        return get_allowed_request_origins(tunnel_url, GUI_HOST, GUI_PORT)
+        return get_allowed_request_origins(
+            tunnel_url,
+            GUI_HOST,
+            GUI_PORT,
+            request_host=self.headers.get("Host", ""),
+            allow_request_host_origin=GUI_HOST in WILDCARD_BIND_HOSTS,
+        )
 
     def get_access_control_origin(self):
         return get_access_control_origin(self.headers, self.get_allowed_request_origins())
@@ -776,7 +783,14 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     try:
-        APP_CONTEXT.state.gui_server = http.server.ThreadingHTTPServer((GUI_HOST, port), Handler)
+        server_class = http.server.ThreadingHTTPServer
+        if ":" in GUI_HOST:
+            server_class = type(
+                "ThreadingHTTPServerIPv6",
+                (http.server.ThreadingHTTPServer,),
+                {"address_family": socket.AF_INET6},
+            )
+        APP_CONTEXT.state.gui_server = server_class((GUI_HOST, port), Handler)
     except OSError as e:
         if "address already in use" in str(e).lower() or e.errno == 10048:
             print(f"ERROR: Port {port} is already in use.")
@@ -787,6 +801,8 @@ def main():
         sys.exit(1)
 
     print(f"Llama GUI running at http://{GUI_HOST}:{port}")
+    if GUI_HOST in WILDCARD_BIND_HOSTS:
+        print(f"Remote access enabled. Open http://<this-server-lan-ip>:{port} from a trusted machine.")
     print("Press Ctrl+C to stop the server.")
     try:
         APP_CONTEXT.state.gui_server.serve_forever()

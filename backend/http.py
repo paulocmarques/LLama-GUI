@@ -8,6 +8,9 @@ import urllib.parse
 
 from . import config
 
+WILDCARD_BIND_HOSTS = {"0.0.0.0", "::", "*"}
+LOCAL_BROWSER_HOSTS = ("127.0.0.1", "localhost", "::1")
+
 
 @dataclass(frozen=True)
 class Request:
@@ -27,11 +30,51 @@ def get_allowed_request_origins(
     tunnel_url: str = "",
     gui_host: str = config.GUI_HOST,
     gui_port: int = config.GUI_PORT,
+    request_host: str = "",
+    allow_request_host_origin: bool = False,
 ) -> tuple[str, ...]:
-    allowed = [f"http://{gui_host}:{gui_port}", f"http://localhost:{gui_port}"]
+    allowed = []
+    for host in LOCAL_BROWSER_HOSTS:
+        origin = build_http_origin(host, gui_port)
+        if origin not in allowed:
+            allowed.append(origin)
+
+    if gui_host and gui_host not in WILDCARD_BIND_HOSTS:
+        origin = build_http_origin(gui_host, gui_port)
+        if origin not in allowed:
+            allowed.append(origin)
+
+    if allow_request_host_origin:
+        request_origin = get_request_host_origin(request_host, gui_port)
+        if request_origin and request_origin not in allowed:
+            allowed.append(request_origin)
+
     if tunnel_url:
         allowed.append(tunnel_url)
     return tuple(allowed)
+
+
+def format_origin_host(host: str) -> str:
+    value = str(host or "").strip().strip("[]")
+    if ":" in value and value not in {"localhost"}:
+        return f"[{value}]"
+    return value
+
+
+def build_http_origin(host: str, port: int) -> str:
+    return f"http://{format_origin_host(host)}:{port}"
+
+
+def get_request_host_origin(host_header: str, gui_port: int) -> str:
+    value = str(host_header or "").strip()
+    if not value:
+        return ""
+    parsed = urllib.parse.urlparse(f"//{value}")
+    host = parsed.hostname
+    port = parsed.port or gui_port
+    if not host or host in WILDCARD_BIND_HOSTS or port != gui_port:
+        return ""
+    return build_http_origin(host, gui_port)
 
 
 def is_safe_request_origin(headers: Any, allowed_origins: Sequence[str]) -> bool:
