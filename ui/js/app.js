@@ -654,6 +654,7 @@ function syncUiAfterSharedStateChange() {
 configFlagsUi.configure({
     debounce,
     getFlagsByCategory,
+    getFlags: () => FLAGS,
     switchTab,
     createSamplerPresetControls,
     refreshQuickLaunchUI,
@@ -1205,11 +1206,15 @@ function setQuickLaunchGpuLayers(value) {
     if (value === "custom") {
         const customInput = document.getElementById("quick-gpu-custom");
         const customValue = String(customInput && customInput.value ? customInput.value : "").trim();
-        if (customValue) {
-            flagCore.setFlagValue("gpu_layers", customValue, { quickLaunchGpuCustomSelected: true });
+        const normalized = flagCore.normalizeGpuLayersValue(customValue);
+        if (customInput) {
+            customInput.setCustomValidity(customValue && normalized === undefined ? "Use auto, all, 0, or a non-negative integer." : "");
+        }
+        if (normalized !== undefined) {
+            flagCore.setFlagValue("gpu_layers", normalized, { quickLaunchGpuCustomSelected: true });
         } else {
             quickLaunchGpuCustomSelected = true;
-            refreshQuickLaunchUI();
+            flagCore.setFlagValue("gpu_layers", undefined, { quickLaunchGpuCustomSelected: true });
         }
     } else {
         flagCore.setFlagValue("gpu_layers", value || "auto", { quickLaunchGpuCustomSelected: false });

@@ -20,6 +20,18 @@
         return Array.isArray(value) ? [...value] : value;
     }
 
+    function isValidGpuLayersValue(val) {
+        if (val === undefined || val === null || val === "") return false;
+        const s = String(val).trim();
+        if (s === "auto" || s === "all") return true;
+        return /^\d+$/.test(s);
+    }
+
+    function normalizeGpuLayersValue(val) {
+        if (!isValidGpuLayersValue(val)) return undefined;
+        return String(val).trim();
+    }
+
     function setCurrentToolValue(tool) {
         currentTool = tool === "llama-cli" ? "llama-cli" : "llama-server";
         return currentTool;
@@ -180,6 +192,13 @@
                     && !isSupportedChatTemplateValue(val)) {
                     continue;
                 }
+                if (f.id === "gpu_layers") {
+                    const normalizedGpuLayers = normalizeGpuLayersValue(val);
+                    if (normalizedGpuLayers === undefined) continue;
+                    if (shouldOmitFlagValue(f, normalizedGpuLayers)) continue;
+                    args.push([f.flag, normalizedGpuLayers]);
+                    continue;
+                }
                 if (shouldOmitFlagValue(f, val)) continue;
                 args.push([f.flag, String(val)]);
             }
@@ -234,6 +253,8 @@
         setPathFlagValue,
         applyFlagValues,
         shouldOmitFlagValue,
+        isValidGpuLayersValue,
+        normalizeGpuLayersValue,
         getLaunchArgs,
         updateCommandPreview,
         registerApi,

@@ -9,10 +9,10 @@ const START_PORT = Number(process.env.LLAMA_GUI_SMOKE_PORT || 5240);
 
 function loadPlaywright() {
     try {
-        return require("playwright-core");
+        return require("playwright");
     } catch (error) {
         throw new Error(
-            "Playwright smoke tests require playwright-core. Install it or run with NODE_PATH pointing to an existing playwright-core install."
+            "Playwright smoke tests require the dev-only playwright package. Run npm ci before npm run test:frontend."
         );
     }
 }
@@ -197,6 +197,17 @@ async function main() {
         await page.waitForFunction(() => document.querySelector("#quick-gpu-custom")?.value === "7");
         assert.match(await page.textContent("#command-preview-text"), /(?:-ngl|--gpu-layers) 7/);
 
+        await page.fill("#flag-gpu_layers", "abc");
+        await page.dispatchEvent("#flag-gpu_layers", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().gpu_layers === undefined);
+        await page.waitForFunction(() => !document.querySelector("#command-preview-text")?.textContent.includes("-ngl 7"));
+        assert.ok(!(await page.textContent("#command-preview-text")).includes("-ngl abc"));
+
+        await page.fill("#flag-gpu_layers", " 9 ");
+        await page.dispatchEvent("#flag-gpu_layers", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().gpu_layers === "9");
+        assert.match(await page.textContent("#command-preview-text"), /(?:-ngl|--gpu-layers) 9/);
+
         await page.fill("#config-search", "metrics");
         await page.waitForSelector("#flag-metrics", { state: "visible" });
         await page.click("#flag-metrics");
@@ -224,7 +235,7 @@ async function main() {
 
         const launchArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
         assert.ok(launchArgs.includes("-c") && launchArgs.includes("12345"));
-        assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("7"));
+        assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
     } finally {
