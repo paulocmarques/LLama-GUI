@@ -217,7 +217,13 @@
             }
 
             if (ch === "\\") {
-                escaping = true;
+                const nextCh = input[i + 1];
+                if (nextCh !== undefined && (/[\s'"\\]/.test(nextCh))) {
+                    escaping = true;
+                    continue;
+                }
+                token += ch;
+                tokenStarted = true;
                 continue;
             }
 

@@ -26,9 +26,13 @@ assertTokens("--chat-template-kwargs '{\"preserve_thinking\":true}'", ["--chat-t
 assertTokens('--log-prefix "my local test"', ["--log-prefix", "my local test"]);
 assertTokens('--label "say \\"hello\\""', ["--label", 'say "hello"']);
 assertTokens('--empty ""', ["--empty", ""]);
+assertTokens(String.raw`--log-file C:\temp\llama.log`, ["--log-file", String.raw`C:\temp\llama.log`]);
+assertTokens(String.raw`--log-prefix my\ local\ test`, ["--log-prefix", "my local test"]);
+assertTokens(String.raw`--label say\"hello\"`, ["--label", 'say"hello"']);
+assertTokens("--path C:\\temp\\", ["--path", "C:\\temp\\"]);
 
 assert.match(parse("--flag 'unterminated").error, /unmatched single quote/);
 assert.match(parse('--flag "unterminated').error, /unmatched double quote/);
-assert.match(parse("--flag \\").error, /unfinished escape/);
+assert.match(parse('--flag "unterminated\\').error, /unfinished escape/);
 
 console.log("custom launch args parser tests passed");
