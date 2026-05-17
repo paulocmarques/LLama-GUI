@@ -197,6 +197,17 @@ async function main() {
         await page.waitForFunction(() => document.querySelector("#quick-gpu-custom")?.value === "7");
         assert.match(await page.textContent("#command-preview-text"), /(?:-ngl|--gpu-layers) 7/);
 
+        await page.fill("#flag-gpu_layers", "abc");
+        await page.dispatchEvent("#flag-gpu_layers", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().gpu_layers === undefined);
+        await page.waitForFunction(() => !document.querySelector("#command-preview-text")?.textContent.includes("-ngl 7"));
+        assert.ok(!(await page.textContent("#command-preview-text")).includes("-ngl abc"));
+
+        await page.fill("#flag-gpu_layers", " 9 ");
+        await page.dispatchEvent("#flag-gpu_layers", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().gpu_layers === "9");
+        assert.match(await page.textContent("#command-preview-text"), /(?:-ngl|--gpu-layers) 9/);
+
         await page.fill("#config-search", "metrics");
         await page.waitForSelector("#flag-metrics", { state: "visible" });
         await page.click("#flag-metrics");

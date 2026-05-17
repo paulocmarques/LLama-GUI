@@ -27,6 +27,11 @@
         return /^\d+$/.test(s);
     }
 
+    function normalizeGpuLayersValue(val) {
+        if (!isValidGpuLayersValue(val)) return undefined;
+        return String(val).trim();
+    }
+
     function setCurrentToolValue(tool) {
         currentTool = tool === "llama-cli" ? "llama-cli" : "llama-server";
         return currentTool;
@@ -187,7 +192,13 @@
                     && !isSupportedChatTemplateValue(val)) {
                     continue;
                 }
-                if (f.id === "gpu_layers" && !isValidGpuLayersValue(val)) continue;
+                if (f.id === "gpu_layers") {
+                    const normalizedGpuLayers = normalizeGpuLayersValue(val);
+                    if (normalizedGpuLayers === undefined) continue;
+                    if (shouldOmitFlagValue(f, normalizedGpuLayers)) continue;
+                    args.push([f.flag, normalizedGpuLayers]);
+                    continue;
+                }
                 if (shouldOmitFlagValue(f, val)) continue;
                 args.push([f.flag, String(val)]);
             }
@@ -243,6 +254,7 @@
         applyFlagValues,
         shouldOmitFlagValue,
         isValidGpuLayersValue,
+        normalizeGpuLayersValue,
         getLaunchArgs,
         updateCommandPreview,
         registerApi,

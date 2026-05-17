@@ -589,7 +589,12 @@
         textField.value = getFlagValues()[f.id] || "";
         textField.addEventListener("input", () => {
             const raw = textField.value || undefined;
-            if (f.id === "gpu_layers" && raw && !getFlagCore().isValidGpuLayersValue(raw)) return;
+            if (f.id === "gpu_layers") {
+                const normalized = getFlagCore().normalizeGpuLayersValue(raw);
+                textField.setCustomValidity(raw && normalized === undefined ? "Use auto, all, 0, or a non-negative integer." : "");
+                getFlagCore().setFlagValue(f.id, normalized);
+                return;
+            }
             getFlagCore().setFlagValue(f.id, raw);
         });
         return textField;
