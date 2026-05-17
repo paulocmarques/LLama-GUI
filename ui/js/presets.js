@@ -511,11 +511,16 @@ async function handlePresetImport(file) {
     try {
         const text = await file.text();
         const parsed = JSON.parse(text);
+        const bulkPresets = Array.isArray(parsed)
+            ? parsed
+            : parsed && typeof parsed === "object" && Array.isArray(parsed.presets)
+                ? parsed.presets
+                : null;
 
-        if (parsed && typeof parsed === "object" && Array.isArray(parsed.presets) && parsed.presets.length > 0) {
+        if (bulkPresets && bulkPresets.length > 0) {
             let imported = 0;
             let unnamedIdx = 0;
-            for (const entry of parsed.presets) {
+            for (const entry of bulkPresets) {
                 const name = entry.name || "Imported-" + (++unnamedIdx);
                 const normalized = normalizePresetData(entry.data || {});
                 if (!normalized.model && Object.keys(normalized.flags).length === 0) continue;
