@@ -188,10 +188,18 @@
         const quickStopBtn = document.getElementById("btn-quick-stop");
         const mainLaunchBtn = document.getElementById("btn-launch");
         const mainStopBtn = document.getElementById("btn-stop");
+        const sidebarLaunchBtn = document.getElementById("btn-sidebar-launch");
+        const sidebarStopBtn = document.getElementById("btn-sidebar-stop");
         if (!quickLaunchBtn || !quickStopBtn || !mainLaunchBtn || !mainStopBtn) return;
 
         quickLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
         quickStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
+        if (sidebarLaunchBtn) {
+            sidebarLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
+        }
+        if (sidebarStopBtn) {
+            sidebarStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
+        }
     }
 
     function refresh() {

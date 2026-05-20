@@ -283,7 +283,7 @@ async function removeLlamaFiles() {
 function setInstallButtonsDisabled(disabled) {
     const ids = [
         "btn-install", "btn-update", "btn-repair", "btn-remove-llama",
-        "btn-stop-app", "btn-restart-app", "btn-check-app-update", "btn-update-app",
+        "btn-stop-app", "btn-sidebar-stop-app", "btn-restart-app", "btn-check-app-update", "btn-update-app",
     ];
     for (const id of ids) {
         const el = document.getElementById(id);
@@ -304,7 +304,9 @@ async function stopPythonServer() {
     if (!ok) return;
 
     const button = document.getElementById("btn-stop-app");
+    const sidebarButton = document.getElementById("btn-sidebar-stop-app");
     if (button) button.disabled = true;
+    if (sidebarButton) sidebarButton.disabled = true;
     showStatus("info", "Stopping Python server...");
 
     try {
@@ -316,6 +318,7 @@ async function stopPythonServer() {
     } catch (e) {
         showStatus("error", "Failed to stop Python server: " + e.message);
         if (button) button.disabled = false;
+        if (sidebarButton) sidebarButton.disabled = false;
     }
 }
 
