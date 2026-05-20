@@ -371,6 +371,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     document.getElementById("btn-launch").addEventListener("click", launchLlama);
     document.getElementById("btn-stop").addEventListener("click", stopLlama);
+    const btnSidebarLaunch = document.getElementById("btn-sidebar-launch");
+    if (btnSidebarLaunch) btnSidebarLaunch.addEventListener("click", launchLlama);
+    const btnSidebarStop = document.getElementById("btn-sidebar-stop");
+    if (btnSidebarStop) btnSidebarStop.addEventListener("click", stopLlama);
+    const btnSidebarStopApp = document.getElementById("btn-sidebar-stop-app");
+    if (btnSidebarStopApp) btnSidebarStopApp.addEventListener("click", stopPythonServer);
     document.getElementById("model-select").addEventListener("change", () => {
         flagCore.setSelectedModelValue(document.getElementById("model-select").value || "");
         syncQuickLaunchModelOptions();
