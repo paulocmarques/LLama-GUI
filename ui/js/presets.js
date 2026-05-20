@@ -12,6 +12,35 @@ function normalizePresetData(data) {
     return { tool: null, model: "", flags: data };
 }
 
+function getKnownPresetFlagIds() {
+    const flags = Array.isArray(window.FLAGS)
+        ? window.FLAGS
+        : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
+    return new Set(flags.map((flag) => flag && flag.id).filter(Boolean));
+}
+
+function normalizeImportedPresetData(data) {
+    const normalized = normalizePresetData(data);
+    const tool = normalized.tool === "llama-server" || normalized.tool === "llama-cli"
+        ? normalized.tool
+        : null;
+    const model = typeof normalized.model === "string" ? normalized.model : "";
+    const knownFlagIds = getKnownPresetFlagIds();
+    const flags = {};
+
+    for (const [key, value] of Object.entries(normalized.flags || {})) {
+        if (knownFlagIds.has(key)) {
+            flags[key] = value;
+        }
+    }
+
+    return { tool, model, flags };
+}
+
+function hasUsablePresetData(presetData) {
+    return Boolean(presetData && (presetData.model || Object.keys(presetData.flags || {}).length > 0));
+}
+
 function getPresetFlagCore() {
     if (!window.LlamaGui || !window.LlamaGui.flagCore) {
         throw new Error("Flag core is not available.");
@@ -25,8 +54,16 @@ function applyPresetModel(modelName) {
     const flagCore = getPresetFlagCore();
 
     if (!target) {
-        modelSelect.value = "";
         if (flagCore) flagCore.setSelectedModelValue("");
+        if (modelSelect) modelSelect.value = "";
+        return;
+    }
+
+    if (!modelSelect) {
+        if (flagCore) flagCore.setSelectedModelValue(target);
+        if (typeof syncQuickLaunchModelOptions === "function") {
+            syncQuickLaunchModelOptions();
+        }
         return;
     }
 
@@ -388,7 +425,7 @@ async function savePreset() {
         }
     } catch (e) {
         showPresetStatus("Failed to save preset", "error", 3200);
-        alert("Failed to save preset: " + e.message);
+        console.warn("Failed to save preset", e);
     }
 }
 
@@ -413,7 +450,7 @@ async function updatePreset(name) {
         }
     } catch (e) {
         showPresetStatus("Failed to update preset", "error", 3200);
-        alert("Failed to update preset: " + e.message);
+        console.warn("Failed to update preset", e);
     }
 }
 
@@ -427,7 +464,8 @@ async function loadPreset(name) {
             const warnings = getPresetWarnings(presetData);
             if (presetData.tool === "llama-cli" || presetData.tool === "llama-server") {
                 flagCore.setCurrentTool(presetData.tool);
-                document.getElementById("tool-select").value = presetData.tool;
+                const toolSelect = document.getElementById("tool-select");
+                if (toolSelect) toolSelect.value = presetData.tool;
             }
             applyPresetModel(presetData.model);
             flagCore.applyFlagValues(presetData.flags);
@@ -441,7 +479,8 @@ async function loadPreset(name) {
             showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
         }
     } catch (e) {
-        alert("Failed to load preset: " + e.message);
+        showPresetStatus("Failed to load preset", "error", 3200);
+        console.warn("Failed to load preset", e);
     }
 }
 
@@ -458,7 +497,7 @@ async function deletePreset(name) {
         showPresetStatus(`Deleted preset \"${name}\"`, "success");
     } catch (e) {
         showPresetStatus("Failed to delete preset", "error", 3200);
-        alert("Failed to delete preset: " + e.message);
+        console.warn("Failed to delete preset", e);
     }
 }
 
@@ -466,7 +505,10 @@ function exportPreset(name) {
     fetchJson("/api/presets")
         .then((presets) => {
             const p = presets.find(x => x.name === name);
-            if (!p) return;
+            if (!p) {
+                showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
+                return;
+            }
             const presetData = normalizePresetData(p.data);
             const exportData = { tool: presetData.tool, model: presetData.model, flags: presetData.flags };
             const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
@@ -478,7 +520,8 @@ function exportPreset(name) {
             URL.revokeObjectURL(url);
         })
         .catch((e) => {
-            alert("Failed to export preset: " + e.message);
+            showPresetStatus("Failed to export preset", "error", 3200);
+            console.warn("Failed to export preset", e);
         });
 }
 
@@ -503,7 +546,8 @@ function exportAllPresets() {
             showPresetStatus(`Exported ${presets.length} preset(s)`, "success");
         })
         .catch((e) => {
-            alert("Failed to export presets: " + e.message);
+            showPresetStatus("Failed to export presets", "error", 3200);
+            console.warn("Failed to export presets", e);
         });
 }
 
@@ -522,8 +566,8 @@ async function handlePresetImport(file) {
             let unnamedIdx = 0;
             for (const entry of bulkPresets) {
                 const name = entry.name || "Imported-" + (++unnamedIdx);
-                const normalized = normalizePresetData(entry.data || {});
-                if (!normalized.model && Object.keys(normalized.flags).length === 0) continue;
+                const normalized = normalizeImportedPresetData(entry.data || {});
+                if (!hasUsablePresetData(normalized)) continue;
                 await fetchJson("/api/presets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -536,8 +580,8 @@ async function handlePresetImport(file) {
             return;
         }
 
-        const normalized = normalizePresetData(parsed);
-        if (!normalized.model && Object.keys(normalized.flags).length === 0) {
+        const normalized = normalizeImportedPresetData(parsed);
+        if (!hasUsablePresetData(normalized)) {
             showPresetStatus("Preset file contains no usable data.", "error", 3200);
             return;
         }
@@ -551,6 +595,12 @@ async function handlePresetImport(file) {
         showPresetStatus(`Imported preset \"${name}\"`, "success");
     } catch (err) {
         showPresetStatus("Failed to import preset", "error", 3200);
-        alert("Failed to import preset: " + err.message);
+        console.warn("Failed to import preset", err);
     }
+}
+
+if (window.LlamaGui) {
+    window.LlamaGui.presets = Object.assign(window.LlamaGui.presets || {}, {
+        normalizeImportedPresetData,
+    });
 }
