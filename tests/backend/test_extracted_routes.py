@@ -145,7 +145,7 @@ class ExtractedRouteTests(unittest.TestCase):
             )
             presets.save_preset(save_request, response, ctx)
 
-            self.assertEqual(response.payload, {"saved": True, "name": "__Odd Name"})
+            self.assertEqual(response.payload, {"saved": True, "name": "Odd Name"})
 
             delete_response = DummyResponse()
             delete_request = Request(
@@ -158,7 +158,28 @@ class ExtractedRouteTests(unittest.TestCase):
             presets.delete_preset(delete_request, delete_response, ctx)
 
             self.assertEqual(delete_response.payload, {"deleted": True})
-            self.assertFalse((ctx.paths.presets / "__Odd Name.json").exists())
+            self.assertFalse((ctx.paths.presets / "Odd Name.json").exists())
+
+    def test_preset_name_sanitizer_rejects_empty_and_stays_in_presets_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            self.assertEqual(presets.sanitize_preset_name("... /// ___"), "")
+            self.assertEqual(presets.sanitize_preset_name("../../../etc/passwd"), "etc_passwd")
+            self.assertIsNone(presets.get_preset_file_path(ctx.paths.presets, "../escape"))
+
+            response = DummyResponse()
+            save_request = Request(
+                "POST",
+                "/api/presets",
+                "",
+                {},
+                body={"name": "... /// ___", "data": {"ok": True}},
+            )
+
+            presets.save_preset(save_request, response, ctx)
+
+            self.assertEqual(response.payload, {"error": "Invalid preset name", "status": 400})
 
     def test_presets_route_skips_bulk_export_files(self):
         with tempfile.TemporaryDirectory() as tmp:
