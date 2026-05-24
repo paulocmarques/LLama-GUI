@@ -783,15 +783,28 @@
                     <button class="btn presets-import-btn" id="btn-export-all-presets">Export All</button>
                     <button class="btn presets-import-btn" id="btn-import-preset">Import JSON</button>
                 </div>
-                <div class="presets-list-header">
-                    <h3>Saved Presets</h3>
-                    <div class="presets-list-actions">
-                        <input type="text" id="preset-search" placeholder="Search presets..." />
-                        <button id="btn-presets-expand-all" class="btn btn-sm" type="button" title="Expand all model groups">Expand All</button>
-                        <button id="btn-presets-collapse-all" class="btn btn-sm" type="button" title="Collapse all model groups">Collapse All</button>
+                <div class="presets-workspace">
+                    <div class="presets-main">
+                        <div class="presets-list-header">
+                            <h3>Saved Presets</h3>
+                            <div class="presets-list-actions">
+                                <input type="text" id="preset-search" placeholder="Search presets..." />
+                                <button id="btn-presets-expand-all" class="btn btn-sm" type="button" title="Expand all model groups">Expand All</button>
+                                <button id="btn-presets-collapse-all" class="btn btn-sm" type="button" title="Collapse all model groups">Collapse All</button>
+                            </div>
+                        </div>
+                        <div class="presets-bulk-bar">
+                            <div id="presets-selection-count" class="presets-selection-count">0 selected</div>
+                            <div class="presets-bulk-actions">
+                                <button id="btn-presets-select-all" class="btn btn-sm" type="button">Select All</button>
+                                <button id="btn-presets-select-none" class="btn btn-sm" type="button">Select None</button>
+                                <button id="btn-presets-delete-selected" class="btn btn-sm btn-danger" type="button">Delete Selected</button>
+                            </div>
+                        </div>
+                        <div id="presets-list"></div>
                     </div>
+                    <aside id="preset-detail-panel" class="preset-detail-panel" aria-label="Selected preset details"></aside>
                 </div>
-                <div id="presets-list"></div>
             </div>
         </div>
 

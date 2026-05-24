@@ -112,6 +112,8 @@ const NO_MODEL_PRESET_GROUP_KEY = "__no_model__";
 let presetStatusTimer = null;
 let presetSearchQuery = "";
 let currentPresetGroups = [];
+let selectedPresetName = "";
+let selectedPresetNames = new Set();
 
 function getPresetGroupKey(model) {
     const normalized = String(model || "").trim();
@@ -216,13 +218,228 @@ function createPresetButton(label, className, onClick, title = "") {
     button.type = "button";
     button.textContent = label;
     if (title) button.title = title;
-    button.addEventListener("click", onClick);
+    button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        onClick(event);
+    });
     return button;
+}
+
+function getVisiblePresetEntries() {
+    return currentPresetGroups.flatMap((group) => group.entries);
+}
+
+function findVisiblePresetEntry(name) {
+    return getVisiblePresetEntries().find((entry) => entry.name === name) || null;
+}
+
+function getPresetFlagLabel(flagId) {
+    const flags = Array.isArray(window.FLAGS)
+        ? window.FLAGS
+        : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
+    const flag = flags.find((entry) => entry && entry.id === flagId);
+    return (flag && flag.label) || flagId.replace(/_/g, " ");
+}
+
+function getNotablePresetSettings(presetData) {
+    const flags = (presetData && presetData.flags) || {};
+    const notableIds = [
+        "ctx_size",
+        "n_gpu_layers",
+        "chat_template",
+        "chat_template_custom",
+        "temp",
+        "top_k",
+        "top_p",
+        "min_p",
+        "repeat_penalty",
+    ];
+    const settings = [];
+
+    for (const id of notableIds) {
+        if (Object.prototype.hasOwnProperty.call(flags, id) && flags[id] !== "" && flags[id] !== null && flags[id] !== undefined) {
+            settings.push({ label: getPresetFlagLabel(id), value: String(flags[id]) });
+        }
+    }
+
+    settings.push({
+        label: "Custom Args",
+        value: typeof flags.custom_args === "string" && flags.custom_args.trim() ? "present" : "none",
+    });
+
+    return settings;
+}
+
+function appendDetailRow(container, label, value) {
+    const row = document.createElement("div");
+    row.className = "preset-detail-row";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "preset-detail-label";
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement("span");
+    valueEl.className = "preset-detail-value";
+    valueEl.textContent = value;
+
+    row.appendChild(labelEl);
+    row.appendChild(valueEl);
+    container.appendChild(row);
+}
+
+function renderPresetDetailPanel() {
+    const panel = document.getElementById("preset-detail-panel");
+    if (!panel) return;
+    panel.textContent = "";
+
+    const entry = findVisiblePresetEntry(selectedPresetName);
+    if (!entry) {
+        const kicker = document.createElement("div");
+        kicker.className = "preset-detail-kicker";
+        kicker.textContent = "Selected Preset";
+
+        const empty = document.createElement("div");
+        empty.className = "preset-detail-empty";
+        empty.textContent = "Select a preset to preview its saved model, tool, warnings, and notable settings.";
+
+        panel.appendChild(kicker);
+        panel.appendChild(empty);
+        return;
+    }
+
+    const kicker = document.createElement("div");
+    kicker.className = "preset-detail-kicker";
+    kicker.textContent = "Selected Preset";
+
+    const title = document.createElement("div");
+    title.className = "preset-detail-title";
+    title.textContent = entry.name;
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "preset-detail-subtitle";
+    subtitle.textContent = entry.groupKey === NO_MODEL_PRESET_GROUP_KEY ? "No model saved" : entry.groupKey;
+
+    const actions = document.createElement("div");
+    actions.className = "preset-detail-actions";
+    actions.appendChild(createPresetButton("Load", "btn btn-sm btn-primary", () => loadPreset(entry.name)));
+    actions.appendChild(createPresetButton("Update", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
+    actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
+    actions.appendChild(createPresetButton("Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows shortcut for this preset"));
+    actions.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
+
+    const details = document.createElement("div");
+    details.className = "preset-detail-grid";
+    appendDetailRow(details, "Tool", entry.toolText);
+    appendDetailRow(details, "Configured Flags", String(entry.flagCount));
+    appendDetailRow(details, "Warnings", String(entry.warnings.length));
+
+    const settingsTitle = document.createElement("div");
+    settingsTitle.className = "preset-detail-section-title";
+    settingsTitle.textContent = "Notable Settings";
+
+    const settings = document.createElement("div");
+    settings.className = "preset-detail-settings";
+    for (const item of getNotablePresetSettings(entry.data)) {
+        appendDetailRow(settings, item.label, item.value);
+    }
+
+    const warningsTitle = document.createElement("div");
+    warningsTitle.className = "preset-detail-section-title";
+    warningsTitle.textContent = "Warnings";
+
+    const warnings = document.createElement("div");
+    warnings.className = entry.warnings.length ? "preset-warning" : "preset-detail-note";
+    warnings.textContent = entry.warnings.length
+        ? entry.warnings.join(" ")
+        : "No preset warnings. This preset should load cleanly into Configure and Quick Launch.";
+
+    panel.appendChild(kicker);
+    panel.appendChild(title);
+    panel.appendChild(subtitle);
+    panel.appendChild(actions);
+    panel.appendChild(details);
+    panel.appendChild(settingsTitle);
+    panel.appendChild(settings);
+    panel.appendChild(warningsTitle);
+    panel.appendChild(warnings);
+}
+
+function renderPresetBulkControls() {
+    const countEl = document.getElementById("presets-selection-count");
+    const deleteButton = document.getElementById("btn-presets-delete-selected");
+    const visibleNames = new Set(getVisiblePresetEntries().map((entry) => entry.name));
+    let visibleSelectedCount = 0;
+
+    for (const name of selectedPresetNames) {
+        if (visibleNames.has(name)) visibleSelectedCount++;
+    }
+
+    if (countEl) {
+        countEl.textContent = `${visibleSelectedCount} selected`;
+    }
+    if (deleteButton) {
+        deleteButton.disabled = selectedPresetNames.size === 0;
+    }
+}
+
+function renderPresetAuxiliaryPanels() {
+    renderPresetDetailPanel();
+    renderPresetBulkControls();
+}
+
+function setSelectedPreset(name) {
+    selectedPresetName = String(name || "");
+    renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
+}
+
+function togglePresetChecked(name) {
+    selectedPresetName = String(name || "");
+    if (selectedPresetNames.has(name)) {
+        selectedPresetNames.delete(name);
+    } else {
+        selectedPresetNames.add(name);
+    }
+    renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
+}
+
+function setPresetChecked(name, checked) {
+    selectedPresetName = String(name || "");
+    if (checked) {
+        selectedPresetNames.add(name);
+    } else {
+        selectedPresetNames.delete(name);
+    }
+    renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
 }
 
 function renderPresetEntry(entry) {
     const el = document.createElement("div");
     el.className = "preset-item";
+    if (entry.name === selectedPresetName) {
+        el.classList.add("selected");
+    }
+    el.tabIndex = 0;
+    el.setAttribute("role", "button");
+    el.setAttribute("aria-pressed", String(entry.name === selectedPresetName));
+    el.addEventListener("click", () => togglePresetChecked(entry.name));
+    el.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            togglePresetChecked(entry.name);
+        }
+    });
+
+    const checkWrap = document.createElement("label");
+    checkWrap.className = "preset-checkbox";
+    checkWrap.title = "Select this preset for bulk actions";
+    checkWrap.addEventListener("click", (event) => event.stopPropagation());
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = selectedPresetNames.has(entry.name);
+    checkbox.setAttribute("aria-label", `Select preset ${entry.name}`);
+    checkbox.addEventListener("change", () => setPresetChecked(entry.name, checkbox.checked));
+    checkWrap.appendChild(checkbox);
 
     const details = document.createElement("div");
     details.className = "preset-details";
@@ -258,12 +475,12 @@ function renderPresetEntry(entry) {
 
     const actions = document.createElement("div");
     actions.className = "preset-actions";
-    actions.appendChild(createPresetButton("Load", "btn btn-sm", () => loadPreset(entry.name)));
+    actions.appendChild(createPresetButton("Load", "btn btn-sm btn-primary", () => loadPreset(entry.name)));
     actions.appendChild(createPresetButton("Update", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
     actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
     actions.appendChild(createPresetButton("Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows shortcut for this preset"));
-    actions.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
 
+    el.appendChild(checkWrap);
     el.appendChild(details);
     el.appendChild(actions);
     return el;
@@ -277,6 +494,7 @@ function renderPresetGroups(container, groups) {
         empty.className = "presets-empty";
         empty.textContent = presetSearchQuery ? "No presets match your search." : "No saved presets yet.";
         container.appendChild(empty);
+        renderPresetAuxiliaryPanels();
         return;
     }
 
@@ -332,6 +550,8 @@ function renderPresetGroups(container, groups) {
         groupEl.appendChild(list);
         container.appendChild(groupEl);
     }
+
+    renderPresetAuxiliaryPanels();
 }
 
 function showPresetStatus(message, type = "success", durationMs = 2200) {
@@ -357,9 +577,19 @@ async function loadPresets() {
     try {
         const presets = await fetchJson("/api/presets");
         currentPresetGroups = buildPresetGroups(presets);
+        const visibleEntries = getVisiblePresetEntries();
+        const visibleNames = new Set(visibleEntries.map((entry) => entry.name));
+        selectedPresetNames = new Set(Array.from(selectedPresetNames).filter((name) => visibleNames.has(name)));
+        if (!selectedPresetName || !visibleNames.has(selectedPresetName)) {
+            selectedPresetName = visibleEntries.length ? visibleEntries[0].name : "";
+        }
         renderPresetGroups(container, currentPresetGroups);
     } catch (e) {
-        container.innerHTML = '<div style="color:var(--red);padding:12px">Failed to load presets.</div>';
+        const error = document.createElement("div");
+        error.className = "presets-empty presets-error";
+        error.textContent = "Failed to load presets.";
+        container.appendChild(error);
+        renderPresetAuxiliaryPanels();
     }
 }
 
@@ -401,6 +631,29 @@ function initPresetLibraryControls() {
             savePresetGroupState(state);
             loadPresets();
         });
+    }
+
+    const selectAll = document.getElementById("btn-presets-select-all");
+    if (selectAll) {
+        selectAll.addEventListener("click", () => {
+            for (const entry of getVisiblePresetEntries()) {
+                selectedPresetNames.add(entry.name);
+            }
+            renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
+        });
+    }
+
+    const selectNone = document.getElementById("btn-presets-select-none");
+    if (selectNone) {
+        selectNone.addEventListener("click", () => {
+            selectedPresetNames.clear();
+            renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
+        });
+    }
+
+    const deleteSelected = document.getElementById("btn-presets-delete-selected");
+    if (deleteSelected) {
+        deleteSelected.addEventListener("click", deleteSelectedPresets);
     }
 }
 
@@ -499,6 +752,37 @@ async function deletePreset(name) {
     } catch (e) {
         showPresetStatus("Failed to delete preset", "error", 3200);
         console.warn("Failed to delete preset", e);
+    }
+}
+
+async function deleteSelectedPresets() {
+    const names = Array.from(selectedPresetNames);
+    if (names.length === 0) {
+        showPresetStatus("No presets selected", "error", 3200);
+        return;
+    }
+
+    const ok = await confirmAction(
+        "Delete Selected Presets",
+        `Delete ${names.length} selected preset${names.length === 1 ? "" : "s"}? This cannot be undone.`,
+        "Delete"
+    );
+    if (!ok) return;
+
+    try {
+        for (const name of names) {
+            await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
+        }
+        selectedPresetNames.clear();
+        if (names.includes(selectedPresetName)) {
+            selectedPresetName = "";
+        }
+        await loadPresets();
+        showPresetStatus(`Deleted ${names.length} preset${names.length === 1 ? "" : "s"}`, "success");
+    } catch (e) {
+        showPresetStatus("Failed to delete selected presets", "error", 3200);
+        console.warn("Failed to delete selected presets", e);
+        loadPresets();
     }
 }
 

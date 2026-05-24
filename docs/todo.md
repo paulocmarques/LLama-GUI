@@ -1,0 +1,30 @@
+# TODO
+
+## Cross-Platform Preset Shortcuts
+
+Follow up on extending preset shortcut export beyond the current Windows `.cmd` flow.
+
+- Linux: add `.desktop` launcher export. This should start `server.py` if needed, open `http://127.0.0.1:5240/?preset=<name>`, and use an absolute icon path when available. If the backend writes directly to the Desktop later, mark the file executable with `chmod +x`; browser-downloaded `.desktop` files may still require the user to trust/allow launch depending on desktop environment.
+- macOS: add `.command` export first. It can reuse the existing mac/Linux shell launcher logic and open the preset URL with `open`. Custom icons are not reliable for this simple format.
+- Optional macOS polish: investigate a generated `.app` bundle with `Info.plist` and an `.icns` icon. This is more work than `.command` but would feel native.
+- Keep all formats loading the preset only. They should start Llama GUI's Python server and open the web UI, but must not launch `llama.cpp`.
+- Reuse the existing `/?preset=<name>` deep-link behavior so shared flag state, command preview, Configure, and Quick Launch remain synchronized.
+
+## Presets UI Improvements
+
+Follow up on redesigning the Presets tab so saved presets no longer stretch across the full UI width.
+
+- Use a centered main preset list with a right-side details panel.
+- Let clicking a preset row select it and show a preview/details panel without loading it.
+- Keep checkbox selection separate from row selection so checkboxes are used only for bulk actions.
+- Add bulk actions for Select All, Select None, and Delete Selected.
+- In the right panel, show useful selected-preset details:
+  - preset name
+  - saved model
+  - selected tool
+  - configured flag count
+  - warnings such as custom launch args or unsupported chat templates
+  - a compact list of notable settings such as context size, GPU layers, chat template, sampler values, and custom args presence
+- Prefer frontend-only bulk delete for v1 by calling the existing per-preset delete endpoint for each selected preset.
+- Keep mobile behavior responsive by stacking the details panel below or above the preset list.
+- Treat this as documentation-only for now; no UI or backend implementation changes are planned until this TODO is picked up later.
