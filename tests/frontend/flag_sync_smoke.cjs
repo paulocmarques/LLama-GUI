@@ -319,12 +319,22 @@ async function main() {
         assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.step), "0.01");
         assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.validity.valid), true);
 
+        await page.fill("#config-search", "checkpoint interval");
+        await page.waitForSelector("#flag-checkpoint_every_n_tokens", { state: "visible" });
+        assert.equal(await page.locator("#flag-checkpoint_every_n_tokens").getAttribute("min"), "-1");
+        await page.fill("#flag-checkpoint_every_n_tokens", "-1");
+        await page.dispatchEvent("#flag-checkpoint_every_n_tokens", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().checkpoint_every_n_tokens === -1);
+        assert.equal(await page.locator("#flag-checkpoint_every_n_tokens").evaluate((el) => el.validity.valid), true);
+        assert.match(await page.textContent("#command-preview-text"), /-cpent -1/);
+
         const launchArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
         assert.ok(launchArgs.includes("-c") && launchArgs.includes("12345"));
         assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
         assert.ok(launchArgs.includes("--temp") && launchArgs.includes("0.96"));
         assert.ok(launchArgs.includes("--repeat-penalty") && launchArgs.includes("1.02"));
         assert.ok(launchArgs.includes("--presence-penalty") && launchArgs.includes("0.3"));
+        assert.ok(launchArgs.includes("-cpent") && launchArgs.includes("-1"));
 
         await selectSection(page, "quick-launch");
         await page.fill("#quick-temperature", "0.64");
